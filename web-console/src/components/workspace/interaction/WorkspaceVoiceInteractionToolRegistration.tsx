@@ -18,19 +18,20 @@ export function WorkspaceVoiceInteractionToolRegistration({
   apiUrl: string;
 }) {
   const t = useT();
-  const { activeTarget } = useWorkspaceInteractionIngress();
+  const { activeTarget, targets } = useWorkspaceInteractionIngress();
   const toolLabel = t('workspaceVoiceToolLabel' as any);
+  const ambiguousTarget = !activeTarget && targets.length > 0;
   const contributions = React.useMemo(() => [{
     key: 'aol:voice',
     id: 'aol:voice',
-    label: activeTarget
-      ? toolLabel
-      : `${toolLabel}: ${t('workspaceVoiceNoTarget' as any)}`,
+    label: ambiguousTarget
+      ? `${toolLabel}: ${t('workspaceVoiceNoTarget' as any)}`
+      : toolLabel,
     icon: <Mic className="h-4 w-4" aria-hidden="true" />,
     group: 'runtime' as const,
     order: 25,
     visible: true,
-    disabled: !activeTarget,
+    disabled: ambiguousTarget,
     testId: 'workspace-voice-tool',
     renderPanel: () => (
       <React.Suspense
@@ -46,7 +47,7 @@ export function WorkspaceVoiceInteractionToolRegistration({
         <WorkspaceVoiceInteractionPanel apiUrl={apiUrl} />
       </React.Suspense>
     ),
-  }], [activeTarget, apiUrl, t, toolLabel]);
+  }], [ambiguousTarget, apiUrl, t, toolLabel]);
 
   useWorkspaceGlobalToolContributions('workspace:voice-interaction', contributions);
   return null;

@@ -91,6 +91,14 @@ def _stage_runtime_revision_subset(
         and "__pycache__" not in path.parts
         and path.suffix != ".pyc"
     )
+    package_files = sorted(
+        path
+        for path in source_dir.rglob("*")
+        if path.is_file()
+        and path not in revision_files
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+    )
     digest = hashlib.sha1(
         b"\0".join(
             [
@@ -107,16 +115,28 @@ def _stage_runtime_revision_subset(
                     + path.read_bytes()
                     for path in support_files
                 ),
+                *(
+                    path.relative_to(source_dir).as_posix().encode("utf-8")
+                    + b"\0"
+                    + path.read_bytes()
+                    for path in package_files
+                ),
             ]
         )
     ).hexdigest()[:12]
     staging_root = Path(tempfile.gettempdir()) / "mindscape_runtime_migrations" / db_type
     staged_capability_root = staging_root / f"{capability_code}_{digest}"
     staged_versions_dir = staged_capability_root / "versions"
+    if staged_capability_root.exists():
+        shutil.rmtree(staged_capability_root)
     staged_versions_dir.mkdir(parents=True, exist_ok=True)
 
     for revision_file in revision_files:
         shutil.copy2(revision_file, staged_versions_dir / revision_file.name)
+    for package_file in package_files:
+        destination = staged_versions_dir / package_file.relative_to(source_dir)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(package_file, destination)
     for support_file in support_files:
         destination = staged_capability_root / support_file.relative_to(support_root)
         destination.parent.mkdir(parents=True, exist_ok=True)

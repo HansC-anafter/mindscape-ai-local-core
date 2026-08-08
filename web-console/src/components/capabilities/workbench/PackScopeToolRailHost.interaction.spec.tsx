@@ -2,11 +2,8 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  loadCapabilityUIComponent,
-  primeCapabilityUIComponentMetadata,
-} from '@/lib/capability-ui-loader';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import type { KeyboardShortcutProfile } from '@/lib/keyboard-shortcuts';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
@@ -18,42 +15,54 @@ import {
   ShortcutProfileController,
 } from './PackScopeToolRailHost.test-support';
 
-vi.mock('@/lib/capability-ui-loader', async () => {
+vi.mock('@/lib/capability-ui-localization', () => ({
+  useOptionalCapabilityLocalization: () => ({ requestedLocale: 'zh-TW' }),
+}));
+
+vi.mock('@/lib/localized-capability-ui-component-loader', async () => {
   const ReactModule = await import('react');
   return {
-    primeCapabilityUIComponentMetadata: vi.fn(),
-    loadCapabilityUIComponent: vi.fn(async () => function LoadedPackToolPanel({
-      workspaceId,
-      apiUrl,
-      tool,
-      panelCollapsed,
-      onPanelCollapsedChange,
-    }: {
-      workspaceId: string;
-      apiUrl: string;
-      tool: WorkspaceToolDefinition;
-      panelCollapsed?: boolean;
-      onPanelCollapsedChange?: (collapsed: boolean) => void;
-    }) {
-      return ReactModule.createElement(
-        'div',
-        {
-          'data-testid': 'loaded-pack-tool-panel',
-          'data-panel-collapsed': String(Boolean(panelCollapsed)),
-          'data-tool-shortcut': tool.shortcut || '',
-        },
-        ReactModule.createElement('span', null, `${tool.id}:${workspaceId}:${apiUrl}`),
-        ReactModule.createElement(
-          'button',
+    loadLocalizedCapabilityUiComponent: vi.fn(async () => ({
+      localization: {
+        requestedLocale: 'zh-TW',
+        t: (key: string) => key,
+      },
+      Component: function LoadedPackToolPanel({
+        workspaceId,
+        apiUrl,
+        tool,
+        localization,
+        panelCollapsed,
+        onPanelCollapsedChange,
+      }: {
+        workspaceId: string;
+        apiUrl: string;
+        tool: WorkspaceToolDefinition;
+        localization?: { requestedLocale?: string };
+        panelCollapsed?: boolean;
+        onPanelCollapsedChange?: (collapsed: boolean) => void;
+      }) {
+        return ReactModule.createElement(
+          'div',
           {
-            type: 'button',
-            'data-testid': 'loaded-pack-tool-collapse',
-            onClick: () => onPanelCollapsedChange?.(true),
+            'data-testid': 'loaded-pack-tool-panel',
+            'data-localization-locale': localization?.requestedLocale || '',
+            'data-panel-collapsed': String(Boolean(panelCollapsed)),
+            'data-tool-shortcut': tool.shortcut || '',
           },
-          'collapse panel',
-        ),
-      );
-    }),
+          ReactModule.createElement('span', null, `${tool.id}:${workspaceId}:${apiUrl}`),
+          ReactModule.createElement(
+            'button',
+            {
+              type: 'button',
+              'data-testid': 'loaded-pack-tool-collapse',
+              onClick: () => onPanelCollapsedChange?.(true),
+            },
+            'collapse panel',
+          ),
+        );
+      },
+    })),
   };
 });
 
@@ -82,21 +91,25 @@ describe('PackScopeToolRailHost', () => {
     );
 
     expect(screen.getByTestId('pack-scope-tool-rail')).toBeInTheDocument();
-    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+    expect(loadLocalizedCapabilityUiComponent).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('pack-scope-tool-ig:feed_grid_card_load_limit'));
 
     expect(onSelectObject).not.toHaveBeenCalled();
-    expect(primeCapabilityUIComponentMetadata).toHaveBeenCalledWith('ig', [feedLoadTool.panel_component]);
     await waitFor(() => {
-      expect(loadCapabilityUIComponent).toHaveBeenCalledWith(
-        'ig',
-        'FeedGridLoadToolPanel',
-        'http://api.test',
-        'ws_test',
-      );
+      expect(loadLocalizedCapabilityUiComponent).toHaveBeenCalledWith({
+        apiUrl: 'http://api.test',
+        capabilityCode: 'ig',
+        componentCode: 'FeedGridLoadToolPanel',
+        requestedLocale: 'zh-TW',
+        workspaceId: 'ws_test',
+      });
       expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveTextContent(
         'feed_grid_card_load_limit:ws_test:http://api.test',
+      );
+      expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute(
+        'data-localization-locale',
+        'zh-TW',
       );
       expect(screen.getByTestId('loaded-pack-tool-panel')).toHaveAttribute('data-panel-collapsed', 'false');
     });
@@ -172,7 +185,7 @@ describe('PackScopeToolRailHost', () => {
     );
 
     fireEvent.keyDown(screen.getByTestId('shortcut-input'), { key: 'F9' });
-    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+    expect(loadLocalizedCapabilityUiComponent).not.toHaveBeenCalled();
 
     fireEvent.keyDown(window, { key: 'F9' });
 
@@ -246,7 +259,7 @@ describe('PackScopeToolRailHost', () => {
 
     fireEvent.keyDown(window, { key: 'v' });
     expect(aolHost.requestObjectTargeting).toHaveBeenCalledTimes(1);
-    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+    expect(loadLocalizedCapabilityUiComponent).not.toHaveBeenCalled();
   });
 
   it('uses saved profile overrides for display and dispatch without reloading tools', async () => {
@@ -294,7 +307,7 @@ describe('PackScopeToolRailHost', () => {
     });
 
     fireEvent.keyDown(window, { key: 'F9' });
-    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+    expect(loadLocalizedCapabilityUiComponent).not.toHaveBeenCalled();
 
     fireEvent.keyDown(window, { key: 'F' });
     await waitFor(() => {

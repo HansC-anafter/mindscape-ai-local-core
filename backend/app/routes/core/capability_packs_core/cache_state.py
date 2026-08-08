@@ -3,9 +3,9 @@ import threading
 import time
 from typing import Any, Dict
 
-_CAPABILITY_ROUTE_CACHE_TTL_SECONDS = 5.0
+_CAPABILITY_ROUTE_CACHE_TTL_SECONDS = 300.0
 _RUNTIME_UI_INDEX_CACHE_TTL_SECONDS = 60.0
-_INSTALLED_PACK_IDS_CACHE_TTL_SECONDS = 5.0
+_INSTALLED_PACK_IDS_CACHE_TTL_SECONDS = 300.0
 _PACK_META_BY_CODE_CACHE_TTL_SECONDS = 60.0
 _capability_route_cache: Dict[tuple[str, str], tuple[float, Any]] = {}
 _capability_route_cache_lock = threading.Lock()

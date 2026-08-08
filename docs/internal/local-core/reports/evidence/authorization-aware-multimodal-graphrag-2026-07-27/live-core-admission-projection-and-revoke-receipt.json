@@ -1,0 +1,114 @@
+{
+  "captured_at": "2026-07-27T12:52:06Z",
+  "workspace_id": "bac7ce63-e768-454d-96f3-3a00e8e1df69",
+  "actor_user_id": "default-user",
+  "pack": {
+    "capability_code": "ig",
+    "version": "1.0.198",
+    "artifact_sha256": "6039d240db388097fd48284dea24e27190b22a4e374181e047b1fb59c85a30aa",
+    "install_job_id": "47082978b3d94f0589ceceddefede168",
+    "control_state": "active",
+    "execution_state": "activated",
+    "descriptor_count": 9,
+    "ui_component_count": 10,
+    "backend_restart_required": false,
+    "runner_restart_required": false
+  },
+  "source": {
+    "source_instance_id": "ref_e8cd5090dee24a9aa1ebd076cc26abc9",
+    "source_ref": "mindscape://ig/reference/ref_e8cd5090dee24a9aa1ebd076cc26abc9",
+    "source_kind": "object",
+    "object_kind": "reference",
+    "intake_id": "ksi_d9112bdf3c2ba0b44535686d9c8d3a19",
+    "knowledge_resource_id": "kr_a121555653561bb61f990aa9e18645b1fdbb6673ca8ad1aad30e0cca10ec259e",
+    "security_label_id": "ksl_e6b263767c119bb7e30e95d92d48ec7fd9cbe896d107c8ec4a253142b88653b4",
+    "projection_revision_id": "kpr_8ab56dc61ff2925f2959433c9e1c14eaef7da1c1a2d9fac0e3c56d8c155c82f4"
+  },
+  "initial_projection": {
+    "task_id": "ktask_7625c52a29c93b2f123673d094f1957e6d33753a75bc49aeeac280d3e9475204",
+    "task_type": "tool_execution",
+    "tool_name": "knowledge.project_source",
+    "status": "succeeded",
+    "frontier_state": "done",
+    "completed_at": "2026-07-27T10:01:32.576782Z",
+    "state": "indexed",
+    "indexed_chunks": 1,
+    "physical_derivatives_before_revoke": {
+      "projection_records": 1,
+      "entities": 3,
+      "mentions": 1,
+      "relations": 2,
+      "communities": 1,
+      "community_reports": 1
+    }
+  },
+  "retrieval_before_revoke": {
+    "query_marker": "kwok1731 DWVPT-CEliY",
+    "authorized_owner": {
+      "hybrid_hits": 1,
+      "local_graph_hits": 1,
+      "multi_hop_hits": 1,
+      "global_graph_hits": 1
+    },
+    "denied_principal_hits": 0,
+    "transactions_per_mode_max": 1,
+    "degradation_channels": []
+  },
+  "revoke": {
+    "task_id": "ktask_3cc545915d5f4c789abc34c61f782e15517a74621b06bb05a0ad9967befd2a28",
+    "task_type": "tool_execution",
+    "tool_name": "knowledge.project_source",
+    "trigger_mode": "revoke",
+    "status": "succeeded",
+    "frontier_state": "done",
+    "completed_at": "2026-07-27T10:42:15.771618Z",
+    "receipt_hash": "9000128183ee64cd0ba9dacea49ba7912dbb1fc04d7bda16538f3ed0b07fa36f",
+    "result_state": "revoked",
+    "indexed_chunks": 0
+  },
+  "post_revoke_product_truth": {
+    "http_detail_status": 200,
+    "resource_active": false,
+    "resource_deleted_at": "2026-07-27T10:42:12.049544Z",
+    "projection": null,
+    "coverage_state": "revoked",
+    "coverage_task_status": "succeeded",
+    "hybrid_hits": 0,
+    "local_graph_hits": 0,
+    "multi_hop_hits": 0,
+    "global_graph_hits": 0,
+    "coverage_resources": [],
+    "coverage_channels": [],
+    "modality_truth": {
+      "text": "not_admitted",
+      "image": "not_admitted",
+      "video": "not_admitted",
+      "audio": "not_admitted"
+    },
+    "product_graph_counts": {
+      "entities": 0,
+      "mentions": 0,
+      "relations": 0,
+      "communities": 0,
+      "active_reports": 0
+    }
+  },
+  "post_revoke_physical_audit_truth": {
+    "projection_status": "revoked",
+    "projection_active": false,
+    "projection_records": 1,
+    "mentions": 1,
+    "relations": 2,
+    "communities": 1,
+    "reports": 1,
+    "active_reports": 0,
+    "interpretation": "Physical derivatives are retained as inactive audit state; authorization-aware retrieval and the product facade expose none of them after revoke."
+  },
+  "core_admission": {
+    "migration_head_present": "20260727100000",
+    "admission_row_count": 1,
+    "ledger_task_id": "ktask_3cc545915d5f4c789abc34c61f782e15517a74621b06bb05a0ad9967befd2a28",
+    "verification": "runner validates the per-task receipt instead of trusting caller-mutable payload"
+  },
+  "result": "PASS"
+}

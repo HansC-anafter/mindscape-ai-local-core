@@ -125,7 +125,8 @@ async def test_final_transcript_submits_one_command_without_audio_payload() -> N
         mindscape_store=SimpleNamespace(),
     )
 
-    assert response.command_id == "cmd_voice_session"
+    assert response.command_response is not None
+    assert response.command_response.command_id == "cmd_voice_session"
     assert len(submission_service.envelopes) == 1
     envelope = submission_service.envelopes[0]
     assert envelope.origin_surface == "meeting_voice_session"

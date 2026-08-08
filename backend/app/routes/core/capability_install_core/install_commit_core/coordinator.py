@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .filesystem_saga import PreparedCapabilityTree
+from .migration_equivalence import equivalent_migration_contracts
 from .state_machine import InstallCommitState, require_transition
 
 
@@ -50,6 +51,35 @@ class InstallCommitCoordinator:
         prepared = self._require_prepared()
         if self.state is not InstallCommitState.PREPARED:
             raise RuntimeError("candidate_migration_requires_prepared_state")
+        equivalent, candidate_digest, installed_digest = (
+            equivalent_migration_contracts(
+                prepared.staging_cap_dir,
+                prepared.target_cap_dir,
+            )
+        )
+        if equivalent:
+            if getattr(result, "migration_status", None) is None:
+                result.migration_status = {}
+            result.migration_status[self.capability_code] = "skipped"
+            if getattr(result, "migration_receipts", None) is None:
+                result.migration_receipts = {}
+            result.migration_receipts[self.capability_code] = {
+                "mode": "identical_installed_migration_contract",
+                "candidate_digest": candidate_digest.sha256,
+                "installed_digest": installed_digest.sha256,
+                "file_count": candidate_digest.file_count,
+                "schema_mutation_required": False,
+                "database_operations": 0,
+            }
+            result.add_warning(
+                "Skipped database migration execution because the candidate and "
+                "installed migration source contracts are byte-identical."
+            )
+            self.state = require_transition(
+                self.state,
+                InstallCommitState.MIGRATION_APPLIED,
+            )
+            return
         original_capabilities_dir = self.runtime_installer.capabilities_dir
         self.runtime_installer.capabilities_dir = prepared.staging_cap_dir.parent
         try:

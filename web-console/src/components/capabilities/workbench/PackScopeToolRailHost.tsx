@@ -14,10 +14,11 @@ import type {
   AddressableObjectHostBridge,
 } from '@/lib/addressable-object-layer';
 import {
-  loadCapabilityUIComponent,
-  primeCapabilityUIComponentMetadata,
-} from '@/lib/capability-ui-loader';
+  type CapabilityUiLocalizationBridgeV1,
+  useOptionalCapabilityLocalization,
+} from '@/lib/capability-ui-localization';
 import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import {
   getPackScopeToolListClassName,
@@ -73,6 +74,8 @@ export function PackScopeToolRailHost({
 }: PackScopeToolRailHostProps) {
   const storageKey = `workspace:${workspaceId || 'default'}:capability:${capabilityCode}:tool-order`;
   const railRef = React.useRef<HTMLElement | null>(null);
+  const hostLocalization = useOptionalCapabilityLocalization();
+  const requestedLocale = hostLocalization?.requestedLocale ?? 'en';
   const {
     activateScope,
     getCommandAriaShortcut,
@@ -83,6 +86,7 @@ export function PackScopeToolRailHost({
   const [activeToolKey, setActiveToolKey] = React.useState<string | null>(null);
   const [draggedToolKey, setDraggedToolKey] = React.useState<string | null>(null);
   const [LoadedPanel, setLoadedPanel] = React.useState<React.ComponentType<any> | null>(null);
+  const [panelLocalization, setPanelLocalization] = React.useState<CapabilityUiLocalizationBridgeV1 | null>(null);
   const [panelExpanded, setPanelExpanded] = React.useState(false);
   const [floatingPosition, setFloatingPosition] = React.useState({ left: 48, bottom: 16 });
   const orderedTools = React.useMemo(() => orderTools(tools, orderedKeys), [orderedKeys, tools]);
@@ -145,29 +149,33 @@ export function PackScopeToolRailHost({
   React.useEffect(() => {
     let cancelled = false;
     setLoadedPanel(null);
+    setPanelLocalization(null);
     if (!activeTool) {
       return () => {
         cancelled = true;
       };
     }
-    primeCapabilityUIComponentMetadata(
-      activeTool.capability_code,
-      tools.map((tool) => tool.panel_component),
-    );
-    void loadCapabilityUIComponent(
-      activeTool.capability_code,
-      activeTool.panel_component_code,
+    void loadLocalizedCapabilityUiComponent({
       apiUrl,
+      capabilityCode: activeTool.capability_code,
+      componentCode: activeTool.panel_component_code,
+      requestedLocale,
       workspaceId,
-    ).then((Component) => {
+    }).then((loaded) => {
       if (!cancelled) {
-        setLoadedPanel(() => Component);
+        setLoadedPanel(() => loaded?.Component || null);
+        setPanelLocalization(loaded?.localization || null);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setLoadedPanel(null);
+        setPanelLocalization(null);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [activeTool, apiUrl, tools, workspaceId]);
+  }, [activeTool, apiUrl, requestedLocale, tools, workspaceId]);
 
   const activateTool = React.useCallback((tool: WorkspaceToolDefinition) => {
     setActiveToolKey((current) => {
@@ -416,6 +424,7 @@ export function PackScopeToolRailHost({
                 apiUrl={apiUrl}
                 tool={effectiveActiveTool}
                 aolHost={aolHost}
+                localization={panelLocalization}
                 panelCollapsed={!effectivePanelExpanded}
                 onPanelCollapsedChange={handlePanelCollapsedChange}
                 onPanelClose={() => setActiveToolKey(null)}

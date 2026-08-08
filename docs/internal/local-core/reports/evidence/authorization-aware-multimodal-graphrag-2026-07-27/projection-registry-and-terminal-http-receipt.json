@@ -1,0 +1,53 @@
+{
+  "captured_at": "2026-07-27T12:52:06Z",
+  "source_commit": "9b71bbe1c21965e14562c2a065cc044bd970cbf9",
+  "startup_projection_registry": {
+    "manifests_discovered": 66,
+    "manifests_with_knowledge_projections": 2,
+    "capabilities_registered": 2,
+    "descriptors_registered": 3,
+    "errors": 0,
+    "duration_ms": 253,
+    "tools_registered": 0,
+    "workers_created": 0,
+    "pollers_created": 0
+  },
+  "http": {
+    "backend_health": 200,
+    "control_health": 200,
+    "frontend_health": 200,
+    "knowledge_access_detail": 200,
+    "routes_present": [
+      "/api/v1/knowledge-foundation/group-packet",
+      "/api/v1/knowledge-foundation/group-synthesis",
+      "/api/v1/knowledge-foundation/group-synthesis/{receipt_id}/review",
+      "/api/v1/knowledge-foundation/scopes/admit",
+      "/api/v1/workspaces/{workspace_id}/knowledge-access",
+      "/api/v1/workspaces/{workspace_id}/knowledge-access/{resource_id}",
+      "/api/v1/workspaces/{workspace_id}/knowledge-access/{resource_id}/actions"
+    ]
+  },
+  "resource_observation": {
+    "receipt": "runtime-pressure-post-admission-and-revoke-closure.json",
+    "ok": true,
+    "postgres_cpu_percent": 50.74,
+    "pgbouncer_samples": 3,
+    "pgbouncer_waiting_max": 0,
+    "pgbouncer_maxwait_max": 0,
+    "aggregate_runner_max_inflight": 8,
+    "protected_runner_capacity": 7,
+    "knowledge_runner": {
+      "container": "mindscape-ai-local-core-runner-vision-mlx-dev",
+      "accepted_partitions": "vision_mlx_dev,knowledge_indexing",
+      "accepted_resource_classes": "compute",
+      "max_inflight": 1
+    },
+    "new_database_pool": false,
+    "new_pgbouncer_alias": false,
+    "new_worker_process": false,
+    "new_queue": false,
+    "new_task_type": false,
+    "new_poller": false
+  },
+  "result": "PASS"
+}

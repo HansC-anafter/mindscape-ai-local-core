@@ -84,6 +84,55 @@ def get_payload():
     )
 
 
+def _write_shared_prefix_capability(base_dir: Path, *, label: str) -> None:
+    capability_dir = base_dir / "shared_prefix_capability"
+    api_dir = capability_dir / "api"
+    services_dir = capability_dir / "services"
+    api_dir.mkdir(parents=True, exist_ok=True)
+    services_dir.mkdir(parents=True, exist_ok=True)
+
+    (capability_dir / "__init__.py").write_text("", encoding="utf-8")
+    (api_dir / "__init__.py").write_text("", encoding="utf-8")
+    (services_dir / "__init__.py").write_text("", encoding="utf-8")
+    (capability_dir / "manifest.yaml").write_text(
+        """
+code: shared_prefix_capability
+apis:
+  - code: shared_prefix_api
+    path: api/routes.py
+    enabled_by_default: true
+    router_export: router
+    prefix: /api/v1
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (api_dir / "routes.py").write_text(
+        """
+from fastapi import APIRouter
+
+from shared_prefix_capability.services.logic import get_payload
+
+router = APIRouter(prefix="/workspaces/{workspace_id}/shared-prefix")
+
+
+@router.get("/ping")
+def ping(workspace_id: str):
+    return get_payload()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (services_dir / "logic.py").write_text(
+        f"""
+def get_payload():
+    return {{"label": "{label}"}}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_explicit_runtime_activation_refreshes_cached_capability_modules(
     tmp_path,
     monkeypatch,
@@ -126,6 +175,54 @@ def test_explicit_runtime_activation_refreshes_cached_capability_modules(
     assert refreshed_client.get("/lazy/sample/ping").json() == {
         "label": "new_runtime_value"
     }
+
+
+def test_explicit_runtime_activation_preserves_host_routes_under_shared_prefix(
+    tmp_path,
+    monkeypatch,
+):
+    _write_shared_prefix_capability(tmp_path, label="old")
+    monkeypatch.setenv("CAPABILITY_API_ACTIVATION_POLICY", "seed_only")
+
+    app = FastAPI()
+
+    @app.get("/api/v1/host-owned")
+    def host_owned():
+        return {"owner": "host"}
+
+    seed_capability_api_descriptors(
+        app=app,
+        remote_capabilities_dir=tmp_path,
+        enable_all=True,
+    )
+    routers = activate_capability_api_code(
+        app=app,
+        capability_code="shared_prefix_capability",
+        activation_service=FakeActivationService(),
+    )
+    assert len(routers) == 1
+
+    client = TestClient(app)
+    assert client.get("/api/v1/host-owned").json() == {"owner": "host"}
+    assert client.get(
+        "/api/v1/workspaces/workspace-a/shared-prefix/ping"
+    ).json() == {"label": "old"}
+
+    _write_shared_prefix_capability(tmp_path, label="new_runtime_value")
+    result = capability_runtime_activation.activate_installed_capability_routes(
+        app=app,
+        capability_code="shared_prefix_capability",
+        reason="test_shared_prefix_refresh",
+    )
+
+    assert result["routes_removed"] == 1
+    refreshed_client = TestClient(app)
+    assert refreshed_client.get("/api/v1/host-owned").json() == {
+        "owner": "host"
+    }
+    assert refreshed_client.get(
+        "/api/v1/workspaces/workspace-a/shared-prefix/ping"
+    ).json() == {"label": "new_runtime_value"}
 
 
 def test_targeted_capability_reload_preserves_other_registry_slices(

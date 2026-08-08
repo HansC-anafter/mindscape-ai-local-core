@@ -2,8 +2,8 @@ import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
 import { KeyboardShortcutProvider } from '@/lib/keyboard-shortcuts';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 import type { WorkspaceToolDefinition } from '@/lib/workspace-tools/workspace-tool-registry';
 import { PackScopeToolRailHost } from './PackScopeToolRailHost';
 import {
@@ -15,25 +15,34 @@ import {
   feedLoadTool,
 } from './PackScopeToolRailHost.test-support';
 
-vi.mock('@/lib/capability-ui-loader', async () => {
+vi.mock('@/lib/capability-ui-localization', () => ({
+  useOptionalCapabilityLocalization: () => ({ requestedLocale: 'zh-TW' }),
+}));
+
+vi.mock('@/lib/localized-capability-ui-component-loader', async () => {
   const ReactModule = await import('react');
   return {
-    primeCapabilityUIComponentMetadata: vi.fn(),
-    loadCapabilityUIComponent: vi.fn(async () => function LoadedPackToolPanel({
-      workspaceId,
-      apiUrl,
-      tool,
-    }: {
-      workspaceId: string;
-      apiUrl: string;
-      tool: WorkspaceToolDefinition;
-    }) {
-      return ReactModule.createElement(
-        'div',
-        { 'data-testid': 'loaded-pack-tool-panel' },
-        `${tool.id}:${workspaceId}:${apiUrl}`,
-      );
-    }),
+    loadLocalizedCapabilityUiComponent: vi.fn(async () => ({
+      localization: {
+        requestedLocale: 'zh-TW',
+        t: (key: string) => key,
+      },
+      Component: function LoadedPackToolPanel({
+        workspaceId,
+        apiUrl,
+        tool,
+      }: {
+        workspaceId: string;
+        apiUrl: string;
+        tool: WorkspaceToolDefinition;
+      }) {
+        return ReactModule.createElement(
+          'div',
+          { 'data-testid': 'loaded-pack-tool-panel' },
+          `${tool.id}:${workspaceId}:${apiUrl}`,
+        );
+      },
+    })),
   };
 });
 
@@ -71,12 +80,13 @@ describe('PackScopeToolRailHost events', () => {
     });
 
     await waitFor(() => {
-      expect(loadCapabilityUIComponent).toHaveBeenCalledWith(
-        'ig',
-        'FeedGridLoadToolPanel',
-        'http://api.test',
-        'ws_test',
-      );
+      expect(loadLocalizedCapabilityUiComponent).toHaveBeenCalledWith({
+        apiUrl: 'http://api.test',
+        capabilityCode: 'ig',
+        componentCode: 'FeedGridLoadToolPanel',
+        requestedLocale: 'zh-TW',
+        workspaceId: 'ws_test',
+      });
       expect(screen.getByTestId('loaded-pack-tool-panel')).toBeInTheDocument();
     });
   });

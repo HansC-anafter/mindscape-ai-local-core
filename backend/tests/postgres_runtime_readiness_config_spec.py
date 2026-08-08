@@ -87,6 +87,32 @@ def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
     assert '"yes"' in compose
     assert "LOCAL_CORE_REDIS_HOST_DIR" in compose
 
+
+def test_vector_session_urls_use_the_runtime_role_source_of_truth():
+    repo_root = _repo_root()
+    if repo_root is None:
+        pytest.skip("Repository root files are not mounted in this container")
+
+    compose = (repo_root / "docker-compose.yml").read_text(encoding="utf-8")
+    runtime_session = (
+        "DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-"
+        "mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?"
+        "POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/"
+        "${POSTGRES_VECTOR_DB:-mindscape_vectors}"
+    )
+
+    assert runtime_session in compose
+    assert (
+        "DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}"
+        not in compose
+    )
+    assert (
+        "DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-"
+        "mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?"
+        "POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/"
+        "${POSTGRES_VECTOR_DB:-mindscape_vectors}"
+    ) in compose
+
     pgbouncer_ini = (repo_root / "docker/pgbouncer/pgbouncer.ini").read_text(
         encoding="utf-8"
     )

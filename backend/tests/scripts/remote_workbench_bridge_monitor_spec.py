@@ -40,12 +40,17 @@ def _settings(tmp_path: Path) -> BridgeSettings:
         token_path=tmp_path / "tunnel-token",
         cloudflared_image=CLOUDFLARED_IMAGE,
         metrics_host_port=2000,
-        local_origin_url="http://127.0.0.1:8300/healthz",
+        local_origin_url=(
+            "http://127.0.0.1:8300/"
+            "api/v1/host/services/mobile-workbench-gateway/health"
+        ),
+        control_plane_health_url="http://127.0.0.1:8220/healthz",
         connector_ready_url="http://127.0.0.1:2000/ready",
         public_origin_url="https://remote-workbench.mindscapeai.app/",
         poll_interval_seconds=20.0,
         probe_timeout_seconds=3.0,
         public_timeout_seconds=5.0,
+        origin_failure_threshold=2,
         connector_failure_threshold=3,
         connector_minimum_ready_connections=2,
         backoff_initial_seconds=5.0,
@@ -67,6 +72,7 @@ class FakeProbes:
     def __init__(self) -> None:
         self.docker_result = ProbeResult(True, "ok")
         self.local_result = ProbeResult(True, "ok", "200")
+        self.control_plane_result = ProbeResult(True, "ok", "200")
         self.tunnel_result = ProbeResult(True, "ok")
         self.connector_result = ProbeResult(True, "ok", "200")
         self.public_result = ProbeResult(True, "ok", "302")
@@ -76,6 +82,9 @@ class FakeProbes:
 
     def local_origin(self) -> ProbeResult:
         return self.local_result
+
+    def control_plane(self) -> ProbeResult:
+        return self.control_plane_result
 
     def tunnel(self) -> ProbeResult:
         return self.tunnel_result
@@ -214,6 +223,7 @@ def test_tunnel_probe_reuses_one_bounded_docker_container_read_without_launcher(
         cloudflared_image=settings.cloudflared_image,
         metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
+        control_plane_health_url=settings.control_plane_health_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
         probe_timeout_seconds=settings.probe_timeout_seconds,
@@ -275,6 +285,7 @@ def test_http_probes_disable_environment_proxies(
         cloudflared_image=settings.cloudflared_image,
         metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
+        control_plane_health_url=settings.control_plane_health_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
         probe_timeout_seconds=settings.probe_timeout_seconds,
@@ -379,19 +390,83 @@ def test_origin_failure_never_repairs_the_tunnel(
         lambda action: repairs.append(action) is None,
     )
 
+    first = supervisor.run_once()
     status = supervisor.run_once()
 
-    assert status["state"] == "degraded_origin"
+    assert first["state"] == "degraded_origin"
+    assert status["state"] == "recovering_origin"
     assert status["ready"] is False
-    assert status["repair_action"] is None
+    assert status["repair_action"] == "recover-origin"
     assert status["probes"]["local_origin"] == {
         "code": "http_status",
         "detail": "503",
         "ok": False,
     }
+    assert status["probes"]["control_plane"] == {
+        "code": "ok",
+        "detail": "200",
+        "ok": True,
+    }
     assert "connector" not in status["probes"]
     assert "public_origin" not in status["probes"]
+    assert repairs == ["recover-origin"]
+
+
+def test_origin_recovery_requires_a_healthy_control_plane(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = FakeProbes()
+    probes.local_result = ProbeResult(False, "http_status", "503")
+    probes.control_plane_result = ProbeResult(False, "http_status", "503")
+    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: 0.0)
+    repairs: list[str] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_launcher",
+        lambda action: repairs.append(action) is None,
+    )
+
+    statuses = [supervisor.run_once() for _ in range(3)]
+
+    assert {status["state"] for status in statuses} == {"degraded_origin"}
+    assert all(status["repair_action"] is None for status in statuses)
+    assert all(status["origin_failures"] == 0 for status in statuses)
     assert repairs == []
+
+
+def test_origin_recovery_is_backoff_bounded_until_actual_listener_health_recovers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    probes = FakeProbes()
+    probes.local_result = ProbeResult(False, "http_status", "503")
+    now = [0.0]
+    supervisor = _supervisor(tmp_path, probes, monotonic=lambda: now[0])
+    repairs: list[str] = []
+    monkeypatch.setattr(
+        supervisor,
+        "_launcher",
+        lambda action: repairs.append(action) is None,
+    )
+
+    supervisor.run_once()
+    first_recovery = supervisor.run_once()
+    suppressed = supervisor.run_once()
+    now[0] = 6.0
+    second_recovery = supervisor.run_once()
+
+    assert first_recovery["repair_action"] == "recover-origin"
+    assert suppressed["repair_action"] is None
+    assert second_recovery["repair_action"] == "recover-origin"
+    assert repairs == ["recover-origin", "recover-origin"]
+
+    probes.local_result = ProbeResult(True, "ok", "200")
+    recovered = supervisor.run_once(repair=False)
+
+    assert recovered["state"] == "ready"
+    assert recovered["origin_failures"] == 0
+    assert recovered["origin_repair_attempts"] == 0
 
 
 def test_access_edge_failure_never_repairs_a_healthy_connector(

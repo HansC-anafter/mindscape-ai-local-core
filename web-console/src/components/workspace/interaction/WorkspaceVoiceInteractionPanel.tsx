@@ -1,13 +1,16 @@
 'use client';
 
+import React from 'react';
 import { Mic, Radio, Square, X } from 'lucide-react';
 
 import { useT } from '@/lib/i18n';
+import { useWorkspaceInteractionIngress } from '@/lib/workspace-interaction/WorkspaceInteractionIngressProvider';
 
 import {
   useWorkspaceVoiceInteractionController,
   type WorkspaceVoiceState,
 } from './WorkspaceVoiceInteractionController';
+import { useWorkspaceVoiceMeetingBootstrap } from './WorkspaceVoiceMeetingBootstrapProvider';
 
 function stateMessageKey(state: WorkspaceVoiceState): string | null {
   if (state === 'requesting_permission') return 'workspaceVoiceStateRequestingPermission';
@@ -20,6 +23,15 @@ function stateMessageKey(state: WorkspaceVoiceState): string | null {
   }
   if (state === 'draft_updated') return 'workspaceVoiceStateDraftUpdated';
   if (state === 'submitted') return 'workspaceVoiceStateSubmitted';
+  if (state === 'answered' || state === 'realtime_answered') {
+    return 'workspaceVoiceStateAnswered';
+  }
+  if (
+    state === 'semantic_clarification'
+    || state === 'realtime_clarification'
+  ) {
+    return 'workspaceVoiceStateClarification';
+  }
   if (state === 'permission_denied') return 'workspaceVoiceStatePermissionDenied';
   if (state === 'unavailable') return 'workspaceVoiceStateUnavailable';
   if (state === 'empty') return 'workspaceVoiceStateEmpty';
@@ -38,13 +50,25 @@ export function WorkspaceVoiceInteractionPanel({
   apiUrl: string;
 }) {
   const t = useT();
+  const ingress = useWorkspaceInteractionIngress();
+  const bootstrap = useWorkspaceVoiceMeetingBootstrap();
   const controller = useWorkspaceVoiceInteractionController(apiUrl);
+  React.useEffect(() => {
+    if (
+      ingress.targets.length === 0
+      && bootstrap.status === 'idle'
+    ) {
+      void bootstrap.ensureMeetingTarget().catch(() => undefined);
+    }
+  }, [bootstrap, ingress.targets.length]);
   const realtimeActive = [
     'realtime_connecting',
     'realtime_listening',
     'transcribing',
     'realtime_interrupted',
     'realtime_speech_unavailable',
+    'realtime_answered',
+    'realtime_clarification',
   ].includes(controller.state) && controller.mode === 'realtime';
   const boundedRecording = controller.state === 'recording'
     && controller.mode === 'bounded';
@@ -81,6 +105,32 @@ export function WorkspaceVoiceInteractionPanel({
                 : t('workspaceVoicePolicyReview' as any)}
             </div>
           </>
+        ) : bootstrap.status === 'starting' || bootstrap.status === 'idle' ? (
+          <div
+            className="mt-1 text-xs text-blue-700 dark:text-blue-300"
+            role="status"
+            data-testid="workspace-voice-meeting-bootstrap-starting"
+          >
+            {t('workspaceVoiceMeetingBootstrapStarting' as any)}
+          </div>
+        ) : bootstrap.status === 'failed' ? (
+          <div
+            className="mt-1 text-xs text-rose-700 dark:text-rose-300"
+            role="alert"
+            data-testid="workspace-voice-meeting-bootstrap-failed"
+          >
+            <div>{t('workspaceVoiceMeetingBootstrapFailed' as any)}</div>
+            <button
+              type="button"
+              className="mt-2 rounded-md border border-rose-300 px-2 py-1 font-semibold dark:border-rose-800"
+              onClick={() => {
+                void bootstrap.ensureMeetingTarget().catch(() => undefined);
+              }}
+              data-testid="workspace-voice-meeting-bootstrap-retry"
+            >
+              {t('workspaceVoiceMeetingBootstrapRetry' as any)}
+            </button>
+          </div>
         ) : (
           <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {t('workspaceVoiceNoTarget' as any)}
@@ -140,7 +190,11 @@ export function WorkspaceVoiceInteractionPanel({
               void controller.start();
             }
           }}
-          disabled={!controller.activeTarget || busy}
+          disabled={
+            !controller.activeTarget
+            || busy
+            || bootstrap.status === 'starting'
+          }
           data-testid="workspace-voice-primary-control"
         >
           {boundedRecording || realtimeActive ? (
@@ -188,6 +242,14 @@ export function WorkspaceVoiceInteractionPanel({
       {controller.transcript ? (
         <div className="rounded-md border border-slate-200 p-3 text-sm text-slate-800 dark:border-slate-800 dark:text-slate-100">
           {controller.transcript}
+        </div>
+      ) : null}
+      {controller.answerText ? (
+        <div
+          className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100"
+          data-testid="workspace-voice-answer"
+        >
+          {controller.answerText}
         </div>
       ) : null}
       {controller.error ? (

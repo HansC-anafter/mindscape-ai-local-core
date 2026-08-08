@@ -116,18 +116,6 @@ class HostBridgeTransportMixin:
                 if self._transport_mode == "polling":
                     await self._run_polling_transport()
                     continue
-                backend_ready = await asyncio.to_thread(self._backend_healthcheck_sync)
-                if not backend_ready:
-                    delay = self._backend_unhealthy_delay()
-                    logger.warning(
-                        "Backend healthcheck failed for workspace=%s surface=%s; "
-                        "delaying reconnect by %.1fs",
-                        self.workspace_id,
-                        self.surface,
-                        delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
                 await self._connect_and_listen()
                 self._ws_forbidden_count = 0
                 if not self._running:
@@ -274,13 +262,15 @@ class HostBridgeTransportMixin:
                             pending_result_acks,
                         )
                         continue
-                    logger.warning(
-                        f"Server did not respond to ping within "
-                        f"{self.PONG_TIMEOUT}s — connection is stale, "
-                        f"forcing reconnect"
+                    logger.info(
+                        "Application pong lagged beyond %.1fs for workspace=%s "
+                        "surface=%s; keeping the idle socket and relying on "
+                        "WebSocket protocol liveness",
+                        self.PONG_TIMEOUT,
+                        self.workspace_id,
+                        self.surface,
                     )
-                    await self._ws.close()
-                    break
+                    continue
             except Exception:
                 logger.warning(
                     "Heartbeat loop failed for workspace=%s surface=%s; forcing reconnect",
@@ -295,7 +285,7 @@ class HostBridgeTransportMixin:
                 break
 
     def _backoff_delay(self) -> float:
-        """Exponential backoff with jitter."""
+        """Exponential backoff with per-client fleet spreading."""
         import random
 
         self._reconnect_attempt += 1
@@ -303,7 +293,16 @@ class HostBridgeTransportMixin:
             self.RECONNECT_BASE_DELAY * (2 ** (self._reconnect_attempt - 1)),
             self.RECONNECT_MAX_DELAY,
         )
-        return delay + random.uniform(0, delay * 0.1)
+        spread = (
+            self.CLEAN_BUSY_RECONNECT_SPREAD
+            if self._has_pending_transport_work()
+            else self.CLEAN_IDLE_RECONNECT_SPREAD
+        )
+        return (
+            delay
+            + random.uniform(0, delay * 0.1)
+            + self._stable_client_offset(spread)
+        )
 
     def _clean_reconnect_delay(self) -> float:
         """Jittered reconnect delay after a graceful WebSocket close."""
@@ -319,38 +318,12 @@ class HostBridgeTransportMixin:
         )
         return base_delay + self._stable_client_offset(spread)
 
-    def _backend_unhealthy_delay(self) -> float:
-        return self.BACKEND_UNHEALTHY_RECONNECT_DELAY + self._stable_client_offset(
-            self.BACKEND_UNHEALTHY_RECONNECT_SPREAD
-        )
-
     def _stable_client_offset(self, spread_window: float) -> float:
         if spread_window <= 0:
             return 0.0
         digest = hashlib.sha1(self.client_id.encode("utf-8")).hexdigest()
         fraction = int(digest[:8], 16) / 0xFFFFFFFF
         return round(fraction * spread_window, 3)
-
-    def _backend_healthcheck_sync(self) -> bool:
-        timeout = max(0.2, float(self.BACKEND_HEALTHCHECK_TIMEOUT))
-        for path in ("/healthz", "/health"):
-            request = urllib.request.Request(
-                f"http://{self.host}{path}",
-                headers={"Accept": "application/json"},
-            )
-            try:
-                with urllib.request.urlopen(request, timeout=timeout) as response:
-                    if int(getattr(response, "status", 0)) == 200:
-                        return True
-            except urllib.error.HTTPError as exc:
-                if path == "/healthz" and getattr(exc, "code", None) == 404:
-                    continue
-                return False
-            except Exception:
-                if path == "/healthz":
-                    continue
-                return False
-        return False
 
     def _supports_polling_fallback(self) -> bool:
         return self.surface == "codex_cli" and _env_flag(
@@ -374,13 +347,9 @@ class HostBridgeTransportMixin:
             return False
 
         status_code = self._websocket_status_code(exc)
-        error_text = str(exc)
         transport_denied = (
             status_code == 403
-            or "HTTP 403" in error_text
-            or "did not receive a valid HTTP response" in error_text
-            or "Connection reset by peer" in error_text
-            or "timed out during opening handshake" in error_text
+            or "HTTP 403" in str(exc)
         )
         if not transport_denied:
             self._ws_forbidden_count = 0

@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import { loadLocalizedCapabilityUiComponent } from '@/lib/localized-capability-ui-component-loader';
 
 import WorkspaceToolExtensionSlot from './WorkspaceToolExtensionSlot';
 
@@ -10,23 +10,42 @@ vi.mock('@/lib/api-url', () => ({
   getApiBaseUrl: () => 'http://api.test',
 }));
 
-vi.mock('@/lib/capability-ui-loader', async () => {
+vi.mock('@/lib/i18n', () => ({
+  useLocaleContext: () => ({ locale: 'zh-TW' }),
+}));
+
+vi.mock('@/lib/localized-capability-ui-component-loader', async () => {
   const ReactModule = await import('react');
   return {
-    primeCapabilityUIComponentMetadata: vi.fn(),
-    loadCapabilityUIComponent: vi.fn(async () => function LoadedToolPanel({
-      workspaceId,
-      apiUrl,
-    }: {
-      workspaceId: string;
-      apiUrl: string;
-    }) {
-      return ReactModule.createElement(
-        'div',
-        { 'data-testid': 'loaded-tool-panel' },
-        `${workspaceId}:${apiUrl}`,
-      );
-    }),
+    loadLocalizedCapabilityUiComponent: vi.fn(async () => ({
+      localization: {
+        contract: 'mindscape-capability-ui-localization-bridge-v1',
+        requestedLocale: 'zh-TW',
+        effectiveLocale: 'zh-TW',
+        direction: 'ltr',
+        sourceLocale: 'en',
+        status: 'localized',
+        t: (key: string) => key,
+      },
+      Component: function LoadedToolPanel({
+        workspaceId,
+        apiUrl,
+        localization,
+      }: {
+        workspaceId: string;
+        apiUrl: string;
+        localization?: { requestedLocale?: string };
+      }) {
+        return ReactModule.createElement(
+          'div',
+          {
+            'data-testid': 'loaded-tool-panel',
+            'data-localization-locale': localization?.requestedLocale || '',
+          },
+          `${workspaceId}:${apiUrl}`,
+        );
+      },
+    })),
   };
 });
 
@@ -66,7 +85,7 @@ describe('WorkspaceToolExtensionSlot', () => {
       />,
     );
 
-    expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
+    expect(loadLocalizedCapabilityUiComponent).not.toHaveBeenCalled();
 
     rerender(
       <WorkspaceToolExtensionSlot
@@ -77,14 +96,19 @@ describe('WorkspaceToolExtensionSlot', () => {
     );
 
     await waitFor(() => {
-      expect(loadCapabilityUIComponent).toHaveBeenCalledWith(
-        'ig',
-        'IGRunsWorkspaceToolPanel',
-        'http://api.test',
-        'ws_test',
-      );
+      expect(loadLocalizedCapabilityUiComponent).toHaveBeenCalledWith({
+        apiUrl: 'http://api.test',
+        capabilityCode: 'ig',
+        componentCode: 'IGRunsWorkspaceToolPanel',
+        requestedLocale: 'zh-TW',
+        workspaceId: 'ws_test',
+      });
       expect(screen.getByTestId('loaded-tool-panel')).toHaveTextContent(
         'ws_test:http://api.test',
+      );
+      expect(screen.getByTestId('loaded-tool-panel')).toHaveAttribute(
+        'data-localization-locale',
+        'zh-TW',
       );
     });
   });

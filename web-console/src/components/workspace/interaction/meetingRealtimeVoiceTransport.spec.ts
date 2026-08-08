@@ -68,6 +68,7 @@ describe('startMeetingRealtimeVoiceTransport', () => {
 
   it('loads VAD only after socket open and sends frozen context per utterance', async () => {
     const onCommandAccepted = vi.fn();
+    const onSemanticResult = vi.fn();
     const onState = vi.fn();
     const handle = await startMeetingRealtimeVoiceTransport({
       apiUrl: 'http://api.test',
@@ -77,6 +78,7 @@ describe('startMeetingRealtimeVoiceTransport', () => {
       onState,
       onTranscript: vi.fn(),
       onCommandAccepted,
+      onSemanticResult,
       onError: vi.fn(),
     });
 
@@ -107,6 +109,24 @@ describe('startMeetingRealtimeVoiceTransport', () => {
       transcript: 'Run it',
       commandResponse: { command_id: 'cmd_1' },
     });
+
+    realtimeMocks.callbacks?.onEvent({
+      type: 'semantic_clarification',
+      transcript: 'How should I align?',
+      semantic_result: {
+        status: 'clarification_required',
+        outcome: 'grounded_answer',
+        decision_code: 'grounded_answer',
+        transcript: 'How should I align?',
+        answer_text: 'Keep the knee tracking over the second toe.',
+        answer_language: 'en',
+      },
+    });
+    expect(onSemanticResult).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'grounded_answer',
+      answer_text: 'Keep the knee tracking over the second toe.',
+    }));
+    expect(onState).toHaveBeenCalledWith('answered');
 
     await handle.close();
     expect(realtimeMocks.vadDestroy).toHaveBeenCalledTimes(1);

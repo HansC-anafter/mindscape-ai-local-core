@@ -3,6 +3,9 @@
 import logging
 from typing import Any, Awaitable, Callable, Dict, Optional, Set, Tuple
 
+from backend.app.services.workflow.sandbox_admission import (
+    resolve_execution_sandbox_admission,
+)
 from backend.app.services.workflow.step_lifecycle import resolve_gate_action
 
 logger = logging.getLogger(__name__)
@@ -87,6 +90,15 @@ async def ensure_execution_sandbox(
     sandbox_id = None
     if isinstance(resume_checkpoint, dict):
         sandbox_id = resume_checkpoint.get("sandbox_id") or None
+
+    admission = resolve_execution_sandbox_admission(playbook_json=playbook_json)
+    if not admission.required:
+        logger.info(
+            "WorkflowOrchestrator: Skipping execution sandbox (%s) for playbook %s",
+            admission.reason,
+            getattr(playbook_json, "playbook_code", None),
+        )
+        return sandbox_id
 
     if not workspace_id:
         logger.warning(

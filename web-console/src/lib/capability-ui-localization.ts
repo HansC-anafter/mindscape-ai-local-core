@@ -20,5 +20,6 @@ export {
   CapabilityMessage,
   CapabilityUiLocalizationProvider,
   useCapabilityLocalization,
+  useOptionalCapabilityLocalization,
   useCapabilityT,
 } from './capability-ui-localization/provider';

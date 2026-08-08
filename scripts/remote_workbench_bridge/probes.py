@@ -98,6 +98,7 @@ class BridgeProbes:
         cloudflared_image: str,
         metrics_host_port: int,
         local_origin_url: str,
+        control_plane_health_url: str,
         connector_ready_url: str,
         public_origin_url: str,
         probe_timeout_seconds: float,
@@ -111,6 +112,7 @@ class BridgeProbes:
         self.cloudflared_image = cloudflared_image
         self.metrics_host_port = metrics_host_port
         self.local_origin_url = local_origin_url
+        self.control_plane_health_url = control_plane_health_url
         self.connector_ready_url = connector_ready_url
         self.public_origin_url = public_origin_url
         self.probe_timeout_seconds = probe_timeout_seconds
@@ -280,10 +282,19 @@ class BridgeProbes:
         return result
 
     def local_origin(self) -> ProbeResult:
-        """Check dependency-light local frontend liveness."""
+        """Check the local-only gateway's actual remote-listener readiness."""
 
         return self._http(
             self.local_origin_url,
+            timeout=self.probe_timeout_seconds,
+            allow_redirect=False,
+        )
+
+    def control_plane(self) -> ProbeResult:
+        """Check the loopback control plane before an origin-only recovery."""
+
+        return self._http(
+            self.control_plane_health_url,
             timeout=self.probe_timeout_seconds,
             allow_redirect=False,
         )

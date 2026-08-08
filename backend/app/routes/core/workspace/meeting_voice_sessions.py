@@ -31,6 +31,9 @@ from backend.app.services.orchestration.meeting.voice_session_registry import (
     MeetingVoiceSessionRegistryError,
     get_meeting_voice_session_registry,
 )
+from backend.app.services.orchestration.meeting.workspace_voice_semantic_event_adapter import (
+    workspace_voice_semantic_event,
+)
 
 router = APIRouter()
 
@@ -247,7 +250,7 @@ async def stream_meeting_voice_session(
                     ),
                 )
                 try:
-                    command_response = await transcriber.submit_final_transcript(
+                    semantic_result = await transcriber.submit_final_transcript(
                         candidate=candidate,
                         workspace_id=workspace_id,
                         meeting_id=meeting_id,
@@ -266,11 +269,10 @@ async def stream_meeting_voice_session(
                     continue
                 await _send_event(
                     websocket,
-                    _event(
-                        event_type="command_submitted",
+                    workspace_voice_semantic_event(
+                        result=semantic_result,
                         entry=entry,
                         utterance_id=candidate.utterance_id,
-                        command_response=command_response,
                     ),
                 )
                 continue

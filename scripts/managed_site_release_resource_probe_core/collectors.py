@@ -128,13 +128,16 @@ class RuntimeResourceCollectors:
         include_samples: bool,
     ) -> dict[str, Any]:
         dsn = _postgres_url("PGBOUNCER_ADMIN_URL")
-        with _connect_pgbouncer(dsn) as connection:
+        connection = _connect_pgbouncer(dsn)
+        try:
             config_rows = self._pgbouncer_config(connection)
             result: dict[str, Any] = {
                 "config_sha256": _canonical_sha256(config_rows)
             }
             if include_samples:
                 result.update(self._pgbouncer_samples(connection))
+        finally:
+            connection.close()
         return result
 
     @staticmethod

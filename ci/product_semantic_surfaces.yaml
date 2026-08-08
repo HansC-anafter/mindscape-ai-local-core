@@ -514,6 +514,52 @@ surfaces:
       - web-console/src/**/*.spec.ts
       - web-console/src/**/*.spec.tsx
 
+  - id: psc.local-core.workspace-aol-interruptible-voice-dialogue-and-object-grounding.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-aol-interruptible-voice-dialogue-and-object-grounding-contract-2026-07-27.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - Interruptible Workspace voice dialogue is an additive Meeting-only extension of the existing global voice ingress: one host controller opens one active Meeting target facade, reuses the existing Meeting realtime WebSocket and browser VAD, and preserves workspace chat and Host Runtime as bounded review-before-submit targets.
+      - Each final transcript enters one Workspace voice semantic-turn facade, which resolves at most one explicit AOL reference through the existing bounded object runtime and calls the already-active installed pack's declared voice interaction tool at most once before invoking the existing Meeting command submission service at most once.
+      - Generic Local Core contains no YogaCoach, Live Interface, F5, material, knowledge, or comment-writer branch; fuzzy intent, material lookup, grounded knowledge, and action-to-ObjectRef projection remain pack-owned, while unresolved, ambiguous, unavailable, or side-effectful turns fail closed or require the existing review and approval path.
+      - One pure Meeting response projection produces visible text and at most 240 Unicode code points of spoken status; one frontend playback facade may issue at most one existing XTTS request, owns one response epoch, AbortController, audio element, and object URL, and discards every stale result after speech-start interruption.
+      - Closed and idle UI performs no microphone, VAD, WebSocket, STT, object lookup, embedding, pack DB read, synthesis, health request, timer, polling, DB write, worker, queue, or PgBouncer work; each final turn performs at most one explicit object read, one mutually exclusive pack read and embedding, one Meeting write, and one XTTS request with zero retry.
+      - F5 global realtime synthesis remains blocked until a separate product-semantic admission proves a provider-neutral cancellable host port, rights, same-host latency, and resource budgets; this surface neither changes the existing Live Interface Kokoro/F5 policy nor creates a fallback route.
+    path_globs:
+      - backend/app/models/meeting_voice.py
+      - backend/app/models/meeting_voice_session.py
+      - backend/app/models/workspace_voice_semantic_turn.py
+      - backend/app/routes/core/workspace/meeting_voice.py
+      - backend/app/routes/core/workspace/meeting_voice_sessions.py
+      - backend/app/services/orchestration/meeting/voice_ingress.py
+      - backend/app/services/orchestration/meeting/realtime_voice_transcriber.py
+      - backend/app/services/orchestration/meeting/voice_client_actions.py
+      - backend/app/services/orchestration/meeting/workspace_voice_semantic_turn_facade.py
+      - backend/app/services/orchestration/meeting/aol_voice_reference_grammar.py
+      - backend/app/services/orchestration/meeting/aol_voice_reference_resolver_facade.py
+      - backend/app/services/orchestration/meeting/active_pack_voice_interaction_port.py
+      - backend/app/services/orchestration/meeting/meeting_voice_response_projection.py
+      - backend/app/services/orchestration/meeting/meeting_command_submission.py
+      - backend/app/services/orchestration/meeting/tool_dispatch.py
+      - backend/app/capabilities/yogacoach/**
+      - backend/tests/*voice*
+      - backend/tests/*yogacoach*
+      - web-console/src/lib/workspace-interaction/workspaceInteractionTarget.ts
+      - web-console/src/lib/workspace-interaction/workspaceVoiceDialogueSessionFacade.ts
+      - web-console/src/components/workspace/interaction/WorkspaceVoiceInteractionController.tsx
+      - web-console/src/components/workspace/interaction/workspaceVoiceResponsePlaybackFacade.ts
+      - web-console/src/components/workspace/interaction/meetingCommandVoiceTarget.ts
+      - web-console/src/components/workspace/interaction/meetingRealtimeVoiceTransport.ts
+      - web-console/src/lib/meeting-voice/realtimeVoiceSessionClient.ts
+      - web-console/src/lib/meeting-voice/voicePlaybackQueue.ts
+      - web-console/src/lib/i18n/keys/workbench.ts
+      - web-console/src/lib/i18n/locales/en/workbench.ts
+      - web-console/src/lib/i18n/locales/zh-TW/workbench.ts
+      - web-console/src/lib/i18n/locales/ja/workbench.ts
+      - web-console/src/**/*.spec.ts
+      - web-console/src/**/*.spec.tsx
+
   - id: psc.local-core.ig-analyze-pinned-reference-workspace-resource-lane.v1
     tier: P0
     owner: "workspace owner"
@@ -791,8 +837,8 @@ surfaces:
     requires_product_semantic_declaration: true
     semantics:
       - Remote Workbench uses remote-workbench.mindscapeai.app as its only Access-protected public ingress.
-      - Host supervision preserves one canonical remotely-managed tunnel with pinned image, exact token identity, remote config version lock, maintenance no-repair, and composite readiness.
-      - Recovery is receipt-safe and bounded to the tunnel/origin services that were actually active or mutated; it does not restart unrelated services or add DB, worker, runner, PgBouncer, queue, or UX polling load.
+      - Host supervision preserves one canonical remotely-managed tunnel with pinned image, exact token identity, remote config version lock, maintenance no-repair, and composite readiness that includes actual remote-listener health rather than an Access redirect alone.
+      - Recovery is receipt-safe and bounded to the tunnel or, only after eligible consecutive listener failures with a healthy loopback control plane, the fixed frontend service; it does not restart unrelated services or add DB, worker, runner, PgBouncer, queue, or UX polling load.
     path_globs:
       - scripts/start_remote_workbench_tunnel.sh
       - scripts/remote_workbench_bridge_monitor.py
@@ -948,15 +994,18 @@ surfaces:
     contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/durable-product-semantic-workflow-contract-2026-07-25.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
-      - Local Core owns the byte-identical contract mirror, one durable-state facade, one ten-table PostgreSQL ledger, deterministic reducers, signed receipts, bounded projections, review routes, and operational recovery evidence.
+      - Local Core owns the seventeen-schema byte-identical contract mirror, one durable-state facade, one ten-table PostgreSQL ledger, deterministic reducers, signed receipts, bounded projections, review routes, and operational recovery evidence.
       - Runtime code never reads Cloud source, .contract-sources, or network contracts; schema parity is a CI/build concern and a pinned release-manifest hash is part of every semantic execution identity.
       - All protected writes require caller-owned transactions through the facade; repository leaves do not create engines or sessions, routes do not issue SQL, and runtime has no DDL fallback or unsigned receipt path.
+      - Durable release-policy CAS verifies complete owner and exact-canary receipts against a caller-pinned registry hash, persists both signed receipts plus their hashes and registry revision/hash in the same immutable PostgreSQL row, and re-verifies them before admission.
       - Terminal execution enters product iteration only through mindscape.product-outcome-adapter-port.v1 and the installed runtime contract registry; generic host code contains no pack literal, known-pack map, prefix dispatch, or pack-specific import.
       - The runtime reuses the existing task lane, PgBouncer transaction pool, workspace shared EventSource, and explicit compact reads with zero new worker, queue, pool, scheduler, or polling topology.
     path_globs:
       - backend/app/services/workflow/durable_state/**
-      - backend/alembic_migrations/postgres/durable_workflow_v1.py
+      - backend/alembic_migrations/postgres/durable_workflow_*.py
       - backend/alembic_migrations/postgres/versions/*durable_workflow*
+      - backend/app/services/workspace_capability_admission/durable_workflow_policy.py
+      - backend/app/app_bootstrap/durable_workflow_routes.py
       - backend/app/routes/core/durable_workflows.py
       - backend/app/routes/core/durable_workflows_core/**
       - backend/app/services/run_harness/durable_workflow_adapter.py

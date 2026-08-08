@@ -1,3 +1,6 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('generate-capability-ui-context-registry', () => {
@@ -15,5 +18,38 @@ describe('generate-capability-ui-context-registry', () => {
     expect(source).not.toContain('staticHostCapabilityCodes');
     expect(source).not.toContain('WorkspaceToolRail');
     expect(source).not.toContain('workspace_tools');
+  });
+
+  it('registers only contexts with an available build-time source directory', async () => {
+    const webConsoleRoot = await mkdtemp(
+      path.join(tmpdir(), 'mindscape-capability-context-registry-'),
+    );
+    try {
+      const contextsDir = path.join(
+        webConsoleRoot,
+        'src/lib/capability-ui-contexts',
+      );
+      await mkdir(contextsDir, { recursive: true });
+      await mkdir(
+        path.join(webConsoleRoot, 'src/app/capabilities/available_pack'),
+        { recursive: true },
+      );
+      await writeFile(path.join(contextsDir, 'available_pack.ts'), '', 'utf8');
+      await writeFile(path.join(contextsDir, 'missing_pack.ts'), '', 'utf8');
+
+      const module = await import('./generate-capability-ui-context-registry.mjs');
+      const result = await module.generateCapabilityUiContextRegistry({
+        webConsoleRoot,
+      });
+      const source = await readFile(result.registryPath, 'utf8');
+
+      expect(result.capabilityCodes).toEqual(['available_pack']);
+      expect(source).toContain(
+        '"available_pack": () => import(\'./capability-ui-contexts/available_pack\')',
+      );
+      expect(source).not.toContain('missing_pack');
+    } finally {
+      await rm(webConsoleRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -12,6 +12,7 @@ import { useCapabilityWorkbenchPlacement } from '@/components/capabilities/workb
 import { useToolRailPanelToggleShortcut } from '@/components/capabilities/workbench/useToolRailPanelToggleShortcut';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useT } from '@/lib/i18n';
 import { useKeyboardShortcuts } from '@/lib/keyboard-shortcuts';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
@@ -54,6 +55,7 @@ export default function WorkspaceGlobalToolRailProvider({
 }: WorkspaceGlobalToolRailProviderProps) {
   const apiUrl = getApiBaseUrl();
   const workspaceData = useWorkspaceDataOptional();
+  const t = useT();
   const {
     activateScope,
     getCommandAriaShortcut,
@@ -188,13 +190,16 @@ export default function WorkspaceGlobalToolRailProvider({
       .filter((contribution) => Boolean(contribution.defaultShortcut))
       .map((contribution) => {
         const owner = shortcutOwnerForContribution(contribution);
+        const ownerLabel = owner.ownerLabel.startsWith('workspaceToolOwner')
+          ? t(owner.ownerLabel)
+          : owner.ownerLabel;
         return registerCommand({
           bindingId: bindingIdForContribution(contribution),
           commandId: WORKSPACE_TOOL_RAIL_COMMAND_ID,
           label: contribution.label,
           ownerType: owner.ownerType,
           ownerId: owner.ownerId,
-          ownerLabel: owner.ownerLabel,
+          ownerLabel,
           defaultShortcut: contribution.defaultShortcut,
           scope: shortcutScope,
           preventDefault: true,
@@ -203,7 +208,7 @@ export default function WorkspaceGlobalToolRailProvider({
         });
       });
     return () => disposers.forEach((dispose) => dispose());
-  }, [activateContribution, registerCommand, shortcutScope, visibleContributions]);
+  }, [activateContribution, registerCommand, shortcutScope, t, visibleContributions]);
 
   const toggleActiveWorkspacePanel = React.useCallback(() => {
     if (activeContribution?.renderPanel) {
@@ -227,10 +232,10 @@ export default function WorkspaceGlobalToolRailProvider({
   useToolRailPanelToggleShortcut({
     bindingId: WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
     scope: shortcutScope,
-    label: 'Toggle active workspace tool panel',
+    label: t('workspaceToolPanelToggleActive'),
     ownerType: 'core',
     ownerId: 'workspace',
-    ownerLabel: 'Workspace',
+    ownerLabel: t('workspaceToolOwnerWorkspace'),
     enabled: Boolean(activeContribution?.renderPanel || lastPanelToolKey),
     shortcutPriority: activeContribution?.renderPanel ? 350 : undefined,
     onToggle: toggleActiveWorkspacePanel,
@@ -248,7 +253,7 @@ export default function WorkspaceGlobalToolRailProvider({
       .sort(([leftGroup], [rightGroup]) => GROUP_ORDER[leftGroup] - GROUP_ORDER[rightGroup])
       .map(([group, contributions]) => ({
         id: `workspace-global-${group}`,
-        label: GROUP_LABELS[group],
+        label: t(GROUP_LABELS[group]),
         testId: `workspace-global-tool-group-${group}`,
         children: (
           <>
@@ -277,7 +282,7 @@ export default function WorkspaceGlobalToolRailProvider({
           </>
         ),
       }));
-  }, [activeToolKey, getCommandAriaShortcut, getCommandShortcut, handleContributionClick, visibleContributions]);
+  }, [activeToolKey, getCommandAriaShortcut, getCommandShortcut, t, handleContributionClick, visibleContributions]);
 
   const contextValue = React.useMemo(() => ({
     activeToolKey,
@@ -288,7 +293,7 @@ export default function WorkspaceGlobalToolRailProvider({
   }), [activeCapabilityCode, activeToolKey, registerToolContributions]);
   const workspaceToolRail = (
     <WorkspaceToolRail
-      ariaLabel="Workspace tools"
+      ariaLabel={t('workspaceToolRailAriaWorkspace')}
       testId="workspace-global-tool-rail"
       placement={railPlacement}
       groups={groups}
@@ -310,7 +315,7 @@ export default function WorkspaceGlobalToolRailProvider({
         </div>
         <button
           type="button"
-          aria-label={`Close ${activeContribution.label}`}
+          aria-label={t('workspaceToolPanelClose', { label: activeContribution.label })}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
           onClick={() => {
             setActiveToolKey(null);

@@ -1,0 +1,67 @@
+{
+  "captured_at": "2026-07-27T16:38:40+08:00",
+  "source_commit": "46795dc25fbc46ff08d27b30c431d4804b7a9360",
+  "source_worktree": "/Users/shock/Projects_local/workspace/.worktrees/mindscape-ai-local-core-graphrag-release-20260727",
+  "containers": {
+    "backend": {
+      "id": "51c33baf217bc718792a3fa7332a54dcaf3c343d26aa6360a5b57f05c57e831c",
+      "health": "healthy",
+      "source_mount": "clean_release_worktree"
+    },
+    "backend_control": {
+      "id": "8961978f0c341f3a7481ced944acb629744ebff184a393e263e9a0c32e9b3536",
+      "health": "healthy",
+      "source_mount": "clean_release_worktree"
+    },
+    "runner_vision_mlx_dev": {
+      "id": "17af752eea6b23cfba0a36a63e56d827d6d58083ffecf6b341ade35cca6ef8c6",
+      "status": "running",
+      "source_mount": "clean_release_worktree",
+      "profile": "vision_mlx_dev",
+      "accepted_partitions": [
+        "vision_mlx_dev",
+        "knowledge_indexing"
+      ],
+      "accepted_resource_classes": [
+        "compute"
+      ],
+      "max_inflight": 1,
+      "runtime_vector_role": "mindscape_vector_runtime",
+      "row_security": "on",
+      "bypass_rls": false
+    }
+  },
+  "http_checks": {
+    "backend_health": 200,
+    "control_health": 200,
+    "frontend_root": 200,
+    "backend_healthz": 200,
+    "active_executions": []
+  },
+  "public_facade_routes": [
+    "/api/v1/knowledge-foundation/group-packet",
+    "/api/v1/knowledge-foundation/group-synthesis",
+    "/api/v1/knowledge-foundation/group-synthesis/{receipt_id}/review",
+    "/api/v1/knowledge-foundation/scopes/admit",
+    "/api/v1/workspaces/{workspace_id}/knowledge-access",
+    "/api/v1/workspaces/{workspace_id}/knowledge-access/{resource_id}",
+    "/api/v1/workspaces/{workspace_id}/knowledge-access/{resource_id}/actions"
+  ],
+  "tool_rag": {
+    "migration_owned_schema_verified": true,
+    "warmup_completed": true,
+    "mode": "existing_index_skip",
+    "pack_embedding_state_sync_count": 75,
+    "runtime_ddl_error_after_fix": false
+  },
+  "resource_gate": {
+    "pre_runner_reload": "runtime-pressure-approved-clean-source-runner-reload.json",
+    "post_activation": "runtime-pressure-post-activation.json",
+    "result": "PASS"
+  },
+  "known_non_goal_runtime_noise": [
+    "clean source does not include unrelated uncommitted performance_direction, IG, Content Variant Strategy, Blender Bridge, Character Training, or ComfyUI object-index modules",
+    "those object index sync/import errors are not counted as GraphRAG acceptance evidence"
+  ],
+  "result": "PASS_WITH_DECLARED_NON_GOAL_NOISE"
+}

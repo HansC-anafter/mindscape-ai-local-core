@@ -140,6 +140,126 @@ def test_pack_install_permit_accepts_digest_bound_empty_migration_set() -> None:
             }
         ).validate()
 
+
+def test_pack_install_permit_limit_counts_only_active_permits(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    expired_permits = []
+    base_receipt = _pack_install_permit()
+    for index in range(16):
+        expired_permits.append(
+            IncidentPackInstallPermitReceipt(
+                **{
+                    **base_receipt.__dict__,
+                    "permit_id": f"expired-pack-install-{index:02d}",
+                    "expires_at": "2020-01-01T00:00:00Z",
+                }
+            ).to_dict()
+        )
+    current_payload = json.loads(journal.current_path.read_text(encoding="utf-8"))
+    current_payload["pack_install_permits"] = expired_permits
+    journal.current_path.write_text(
+        json.dumps(current_payload),
+        encoding="utf-8",
+    )
+
+    permitted = journal.grant_pack_install_permit(
+        incident.incident_id,
+        base_receipt,
+    )
+    events = [
+        json.loads(line)
+        for line in (
+            journal._incident_path(incident.incident_id) / "events.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert len(permitted.pack_install_permits) == 1
+    assert permitted.pack_install_permits[0]["permit_id"] == "pack-install-001"
+    assert events[-1]["expired_permit_ids_pruned"] == [
+        f"expired-pack-install-{index:02d}"
+        for index in range(16)
+    ]
+
+
+def test_pack_install_permit_limit_remains_fail_closed_for_active_permits(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    base_receipt = _pack_install_permit()
+    current_payload = json.loads(journal.current_path.read_text(encoding="utf-8"))
+    current_payload["pack_install_permits"] = [
+        IncidentPackInstallPermitReceipt(
+            **{
+                **base_receipt.__dict__,
+                "permit_id": f"active-pack-install-{index:02d}",
+            }
+        ).to_dict()
+        for index in range(16)
+    ]
+    journal.current_path.write_text(
+        json.dumps(current_payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        IncidentTransitionError,
+        match="pack_install_permit_limit_exceeded",
+    ):
+        journal.grant_pack_install_permit(
+            incident.incident_id,
+            base_receipt,
+        )
+
+
+def test_pack_install_permit_revoke_requires_terminal_receipt_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    journal = RuntimeDatabaseIncidentJournal(tmp_path)
+    incident = journal.open_incident(failure_code="unexpected_close")
+    journal.grant_pack_install_permit(
+        incident.incident_id,
+        _pack_install_permit(),
+    )
+
+    revoked = journal.revoke_pack_install_permit(
+        incident.incident_id,
+        permit_id="pack-install-001",
+        terminal_install_id="install-terminal-001",
+        terminal_status="succeeded",
+        terminal_evidence_path="evidence/install-terminal-001.json",
+    )
+    repeated = journal.revoke_pack_install_permit(
+        incident.incident_id,
+        permit_id="pack-install-001",
+        terminal_install_id="install-terminal-001",
+        terminal_status="succeeded",
+        terminal_evidence_path="evidence/install-terminal-001.json",
+    )
+    gate = RuntimeDatabaseMutationGate(tmp_path)
+
+    assert revoked.pack_install_permits == ()
+    assert repeated == revoked
+    assert gate.evaluate(
+        "capability_install_job:runtime-id",
+        {"artifact_sha256": "b" * 64},
+    ).reason == "runtime_database_incident_open"
+    with pytest.raises(
+        IncidentTransitionError,
+        match="already revoked with another receipt",
+    ):
+        journal.revoke_pack_install_permit(
+            incident.incident_id,
+            permit_id="pack-install-001",
+            terminal_install_id="install-terminal-002",
+            terminal_status="failed",
+            terminal_evidence_path="evidence/install-terminal-002.json",
+        )
+
+
 def test_open_incident_allows_only_exact_owner_authorized_targeted_migration(
     tmp_path: Path,
 ) -> None:

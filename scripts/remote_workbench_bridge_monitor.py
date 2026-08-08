@@ -48,6 +48,7 @@ def build_supervisor(
         cloudflared_image=settings.cloudflared_image,
         metrics_host_port=settings.metrics_host_port,
         local_origin_url=settings.local_origin_url,
+        control_plane_health_url=settings.control_plane_health_url,
         connector_ready_url=settings.connector_ready_url,
         public_origin_url=settings.public_origin_url,
         probe_timeout_seconds=settings.probe_timeout_seconds,

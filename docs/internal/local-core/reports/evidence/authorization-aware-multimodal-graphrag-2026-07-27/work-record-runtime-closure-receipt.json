@@ -1,0 +1,25 @@
+{
+  "canonical_record": {
+    "content_sha256": "9521e4eb71316c662f83fa20d26990ecaa3e11394853524533aab43595d26d32",
+    "path": "/Users/shock/Projects_local/workspace/mindscape-ai-cloud/docs/internal/local-core/reports/authorization-aware-multimodal-graphrag-implementation-report-2026-07-27.zh-TW.md",
+    "record_type": "implementation-report",
+    "status": "closed"
+  },
+  "closure_scope": "runtime",
+  "closure_signal": "runtime_record_closed",
+  "mirror_record": {
+    "content_sha256": "6b0b6d9ca0b8de3630dc66722ce3a4f9f92ecc345455e6c61929d2d321735d52",
+    "path": "/Users/shock/Projects_local/workspace/mindscape-book/notes/mindscape-ai-internal/local-core/2026-07-27-authorization-aware-multimodal-graphrag-implementation-report.md",
+    "record_type": "implementation-report",
+    "status": "mirrored"
+  },
+  "receipt_sha256": "7aca35f78662868a13607cc9c9c3c5eb63e210a6ee938256b55595ca4ec6f6e6",
+  "recorded_at": "2026-07-27T13:05:48Z",
+  "schema_version": "mindscape.work-record-closure-receipt.v1",
+  "subject_id": "authorization-aware-multimodal-graphrag-2026-07-27",
+  "verification": {
+    "content_hashes_verified": true,
+    "reciprocal_linkage_verified": true,
+    "runtime_authority": "unchanged"
+  }
+}

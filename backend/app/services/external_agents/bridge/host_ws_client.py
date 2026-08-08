@@ -79,9 +79,6 @@ class HostBridgeWSClient(
     CLEAN_BUSY_RECONNECT_DELAY: float = 1.0
     CLEAN_IDLE_RECONNECT_SPREAD: float = 12.0
     CLEAN_BUSY_RECONNECT_SPREAD: float = 2.0
-    BACKEND_HEALTHCHECK_TIMEOUT: float = 2.5
-    BACKEND_UNHEALTHY_RECONNECT_DELAY: float = 30.0
-    BACKEND_UNHEALTHY_RECONNECT_SPREAD: float = 20.0
     RESULT_REST_RETRY_ATTEMPTS: int = 4
     RESULT_REST_RETRY_BASE_DELAY: float = 1.0
     HOST_SESSION_REGISTER_TIMEOUT: float = 30.0
@@ -160,21 +157,6 @@ class HostBridgeWSClient(
             "MINDSCAPE_WS_PONG_TIMEOUT",
             self.PONG_TIMEOUT,
             minimum=1.0,
-        )
-        self.BACKEND_HEALTHCHECK_TIMEOUT = _env_float(
-            "MINDSCAPE_WS_BACKEND_HEALTHCHECK_TIMEOUT",
-            self.BACKEND_HEALTHCHECK_TIMEOUT,
-            minimum=0.2,
-        )
-        self.BACKEND_UNHEALTHY_RECONNECT_DELAY = _env_float(
-            "MINDSCAPE_WS_BACKEND_UNHEALTHY_RECONNECT_DELAY",
-            self.BACKEND_UNHEALTHY_RECONNECT_DELAY,
-            minimum=1.0,
-        )
-        self.BACKEND_UNHEALTHY_RECONNECT_SPREAD = _env_float(
-            "MINDSCAPE_WS_BACKEND_UNHEALTHY_RECONNECT_SPREAD",
-            self.BACKEND_UNHEALTHY_RECONNECT_SPREAD,
-            minimum=0.0,
         )
         self.HOST_SESSION_REGISTER_TIMEOUT = _env_float(
             "MINDSCAPE_CODEX_POOL_REGISTER_TIMEOUT",

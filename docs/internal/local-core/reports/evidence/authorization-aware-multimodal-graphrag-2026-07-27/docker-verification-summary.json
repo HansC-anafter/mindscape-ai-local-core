@@ -1,0 +1,139 @@
+{
+  "captured_at": "2026-07-27T12:52:06Z",
+  "formal_environment": "Docker",
+  "source_commit": "9b71bbe1c21965e14562c2a065cc044bd970cbf9",
+  "suites": [
+    {
+      "name": "fresh_vector_db_zero_to_exact_head",
+      "database": "mindscape_vectors_graphrag_t17_20260727",
+      "owner_bootstrap": "vector extension only",
+      "migration_authority": "MigrationOrchestrator.apply_revision",
+      "migration_target": "20260727042000",
+      "revisions_applied": [
+        "20260727010000",
+        "20260727020000",
+        "20260727030000",
+        "20260727035000",
+        "20260727036000",
+        "20260727040000",
+        "20260727041000",
+        "20260727042000"
+      ],
+      "public_tables": 20,
+      "force_rls_tables": 18,
+      "runtime_role_superuser": false,
+      "runtime_role_bypassrls": false,
+      "result": "PASS"
+    },
+    {
+      "name": "terminal_authorization_aware_graphrag_aggregate",
+      "vector_database": "mindscape_vectors_graphrag_t19_20260727",
+      "core_database": "mindscape_core_graphrag_t20_20260727",
+      "database_fixture": "schema-only, zero product rows, vector RLS grants preserved",
+      "test_file_count": 31,
+      "passed": 134,
+      "skipped": 1,
+      "warnings": 162,
+      "result": "PASS"
+    },
+    {
+      "name": "migration_facade_focused_regression",
+      "passed": 17,
+      "scope": [
+        "targeted migration facade",
+        "vector migration authority",
+        "runtime capability version locations"
+      ],
+      "counting": "overlaps terminal aggregate; not added to formal_total",
+      "result": "PASS"
+    },
+    {
+      "name": "frontend_knowledge_access_vitest",
+      "runtime": "Node 22 in backend-control with exact Linux optional modules in /tmp",
+      "passed": 3,
+      "result": "PASS"
+    },
+    {
+      "name": "frontend_knowledge_access_targeted_typecheck",
+      "diagnostics": 0,
+      "result": "PASS"
+    },
+    {
+      "name": "cloud_pack_projection_schema_and_compiler",
+      "passed": 6,
+      "result": "PASS"
+    },
+    {
+      "name": "capability_registry_runtime_loader_regression",
+      "passed": 5,
+      "warnings": 155,
+      "result": "PASS"
+    },
+    {
+      "name": "formal_total",
+      "passed": 134,
+      "skipped": 1,
+      "result": "PASS"
+    }
+  ],
+  "historical_checkpoint": {
+    "database": "mindscape_vectors_graphrag_t13_20260727",
+    "migration_target": "20260727041000",
+    "passed": 99,
+    "skipped": 3,
+    "result": "SUPERSEDED_BY_TERMINAL_AGGREGATE"
+  },
+  "known_non_goal_baselines": [
+    {
+      "name": "frontend_full_typecheck",
+      "status": "NON_ZERO",
+      "reason": "pre-existing CapabilitySettingsExtensionSlot.spec.tsx diagnostic outside this goal"
+    }
+  ],
+  "test_hygiene": {
+    "fresh_t17_pre_mutation_blocks": [
+      {
+        "cause": "nonexistent /app/capabilities harness root",
+        "database_impact": "none"
+      },
+      {
+        "cause": "owner had not pre-provisioned required vector extension",
+        "database_impact": "extension only after owner bootstrap; no product schema"
+      },
+      {
+        "cause": "default container journal correctly represented the live open database incident",
+        "corrective_action": "use an isolated empty /tmp incident journal for the disposable test domain",
+        "live_journal_impact": "none"
+      },
+      {
+        "cause": "multi-revision subprocess referenced an unbound db_type",
+        "corrective_action": "bind exactly one registered Alembic config to its database type in the existing facade",
+        "source_commit": "9b71bbe1c21965e14562c2a065cc044bd970cbf9",
+        "database_impact": "none before repair"
+      }
+    ],
+    "first_terminal_aggregate_attempt": {
+      "passed": 132,
+      "skipped": 1,
+      "failed": 2,
+      "source_regressions": 0,
+      "failures": [
+        {
+          "cause": "backend container did not mount /app/docker-compose.yml",
+          "corrective_action": "set KNOWLEDGE_RUNNER_COMPOSE_PATH to the exact clean-release compose copied read-only to /tmp"
+        },
+        {
+          "cause": "previously used core disposable DB returned the correct idempotent reused state",
+          "corrective_action": "rerun against a schema-only zero-row core database"
+        }
+      ],
+      "focused_correction": "4 passed",
+      "terminal_rerun": "134 passed, 1 skipped"
+    }
+  },
+  "static_gates": {
+    "git_diff_check": "PASS",
+    "py_compile": "PASS"
+  },
+  "result": "PASS_WITH_EXPLICIT_NATIVE_MEDIA_NON_ADMISSION"
+}

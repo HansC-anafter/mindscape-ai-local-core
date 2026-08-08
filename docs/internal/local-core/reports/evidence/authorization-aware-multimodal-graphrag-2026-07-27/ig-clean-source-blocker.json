@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-07-27T16:00:00+08:00",
+  "repository": "mindscape-ai-cloud",
+  "clean_source_commit": "a4d67d3ed2a4dabf591ff7b6d03fa7eba17f3344",
+  "manifest_path": "capabilities/ig/manifest.yaml",
+  "manifest_validation": "FAIL",
+  "blocking_error": "non-empty ui_components requires ui_localization",
+  "working_tree_context": {
+    "ui_localization_changes_present": true,
+    "changes_committed": false,
+    "changes_owned_by_this_goal": false
+  },
+  "safety_decision": "Do not package or install IG from an unrelated dirty working tree and do not stage another owner's localization changes.",
+  "release_impact": "IG build/install/activation and the two-real-pack Phase 05 exit gate remain open.",
+  "result": "BLOCKED_BY_CLEAN_SOURCE"
+}

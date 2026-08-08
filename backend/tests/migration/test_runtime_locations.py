@@ -170,6 +170,48 @@ def test_staged_runtime_subset_preserves_relative_migration_helpers(
     ) == "VALUE = 'preserved'\n"
 
 
+def test_staged_runtime_subset_preserves_revision_package_dir(
+    tmp_path: Path,
+) -> None:
+    declared_versions_dir = tmp_path / "declared_versions"
+    _write_revision(declared_versions_dir / "shared.py", "shared")
+
+    capabilities_root = tmp_path / "capabilities"
+    capability_dir = capabilities_root / "performance_direction"
+    capability_dir.mkdir(parents=True, exist_ok=True)
+    (capability_dir / "migrations.yaml").write_text(
+        "\n".join(
+            [
+                "db: postgres",
+                "revisions:",
+                '  - "shared"',
+                '  - "unique"',
+                "migration_paths:",
+                '  - "migrations/versions/"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    versions_dir = capability_dir / "migrations" / "versions"
+    _write_revision(versions_dir / "shared.py", "shared")
+    _write_revision(versions_dir / "unique.py", "unique")
+    helper = versions_dir / "helpers" / "summary.py"
+    helper.parent.mkdir(parents=True, exist_ok=True)
+    helper.write_text("VALUE = 'packaged'\n", encoding="utf-8")
+
+    config = _build_config(tmp_path, declared_versions_dir)
+    locations = configure_runtime_version_locations(
+        config,
+        capabilities_root=capabilities_root,
+        db_type="postgres",
+    )
+
+    staged_versions_dir = Path(locations[1])
+    assert (staged_versions_dir / "helpers" / "summary.py").read_text(
+        encoding="utf-8"
+    ) == "VALUE = 'packaged'\n"
+
+
 def test_configure_runtime_version_locations_dedupes_typed_revision_assignments(
     tmp_path: Path,
 ) -> None:

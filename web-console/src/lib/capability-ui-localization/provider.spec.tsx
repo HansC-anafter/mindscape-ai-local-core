@@ -1,6 +1,6 @@
 import { render, renderHook, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   CapabilityMessage,
@@ -8,6 +8,7 @@ import {
   createLocalizedCapabilityEntry,
   type CapabilityUiLocalizationBridgeV1,
   useCapabilityLocalization,
+  useOptionalCapabilityLocalization,
 } from '@/lib/capability-ui-localization';
 
 const bridge: CapabilityUiLocalizationBridgeV1 = {
@@ -25,6 +26,12 @@ const bridge: CapabilityUiLocalizationBridgeV1 = {
 };
 
 describe('capability UI localization runtime facade', () => {
+  it('returns null from the optional hook outside a localized capability entry', () => {
+    const { result } = renderHook(() => useOptionalCapabilityLocalization());
+
+    expect(result.current).toBeNull();
+  });
+
   it('exposes exactly the host-owned bridge to descendants', () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <CapabilityUiLocalizationProvider localization={bridge}>
@@ -41,6 +48,21 @@ describe('capability UI localization runtime facade', () => {
     expect(result.current.t('runtime.loading')).toBe(
       'translated:runtime.loading',
     );
+  });
+
+  it('exposes the requested locale through the optional cross-bundle context', () => {
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <CapabilityUiLocalizationProvider localization={bridge}>
+        {children}
+      </CapabilityUiLocalizationProvider>
+    );
+
+    const { result } = renderHook(
+      () => useOptionalCapabilityLocalization(),
+      { wrapper },
+    );
+
+    expect(result.current?.requestedLocale).toBe('ja');
   });
 
   it('renders messages through the provided bridge', () => {
@@ -81,5 +103,24 @@ describe('capability UI localization runtime facade', () => {
     expect(() => render(<LocalizedEntry />)).toThrow(
       'Capability UI localization bridge is unavailable',
     );
+  });
+
+  it('shares the host context across module reloads', async () => {
+    vi.resetModules();
+    const firstModule = await import('./provider');
+    vi.resetModules();
+    const secondModule = await import('./provider');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <firstModule.CapabilityUiLocalizationProvider localization={bridge}>
+        {children}
+      </firstModule.CapabilityUiLocalizationProvider>
+    );
+
+    const { result } = renderHook(
+      () => secondModule.useCapabilityLocalization(),
+      { wrapper },
+    );
+
+    expect(result.current).toBe(bridge);
   });
 });

@@ -123,6 +123,19 @@ def test_canonical_launcher_uses_one_immutable_remote_managed_tunnel_command() -
     assert "{{json .Config.Cmd}}" in source
 
 
+def test_origin_recovery_is_fixed_to_the_frontend_service() -> None:
+    source = (REPO_ROOT / "scripts/start_remote_workbench_tunnel.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        'docker compose -f "$PROJECT_ROOT/docker-compose.yml" '
+        "up -d --force-recreate --no-deps frontend"
+    ) in source
+    assert "recover-origin accepts no additional arguments" in source
+    assert "recover_origin" in source
+
+
 def test_bridge_plist_has_exact_argument_vector_without_legacy_run() -> None:
     template = (
         REPO_ROOT / "scripts/config/ai.mindscape.remote-workbench-bridge.plist"

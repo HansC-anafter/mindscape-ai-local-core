@@ -206,6 +206,13 @@ recreate_tunnel() {
   fi
 }
 
+recover_origin() {
+  ensure_state_dir
+  docker_available || fail "Docker must be reachable for frontend origin recovery"
+  docker compose -f "$PROJECT_ROOT/docker-compose.yml" up -d --force-recreate --no-deps frontend >/dev/null
+  log "Remote Workbench frontend origin recreated"
+}
+
 supervisor_activation_json() {
   [[ -x "$BRIDGE_INSTALLER" && ! -L "$BRIDGE_INSTALLER" ]] || return 1
   "$BRIDGE_INSTALLER" verify --json
@@ -295,7 +302,7 @@ status_json() {
   token_file_valid && token=true
   local activation candidate
   if activation="$(supervisor_activation_json 2>/dev/null)" && (( ${#activation} <= 65536 )); then
-    for candidate in degraded_origin degraded_remote degraded_tunnel maintenance ready recovering_tunnel waiting_docker; do
+    for candidate in degraded_origin degraded_remote degraded_tunnel maintenance ready recovering_origin recovering_tunnel waiting_docker; do
       if [[ "$activation" == *"\"state\":\"$candidate\""* ]]; then
         supervisor_state="$candidate"
         supervisor_activation_conformant=true
@@ -327,7 +334,7 @@ status_human() {
 }
 
 usage() {
-  printf 'Usage: %s [ensure|restart|recreate|stop|status [--json]|supervisor verify --json|maintenance enter [reason]|maintenance exit|--restart|--recreate]\n' "$0" >&2
+  printf 'Usage: %s [ensure|restart|recreate|recover-origin|stop|status [--json]|supervisor verify --json|maintenance enter [reason]|maintenance exit|--restart|--recreate]\n' "$0" >&2
 }
 
 main() {
@@ -357,6 +364,10 @@ main() {
     recreate)
       [[ $# -eq 1 ]] || fail "recreate accepts no additional arguments"
       recreate_tunnel
+      ;;
+    recover-origin)
+      [[ $# -eq 1 ]] || fail "recover-origin accepts no additional arguments"
+      recover_origin
       ;;
     stop)
       [[ $# -eq 1 ]] || fail "stop accepts no additional arguments"
