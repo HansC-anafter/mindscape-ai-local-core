@@ -128,6 +128,59 @@ def test_explicit_websocket_403_keeps_existing_polling_fallback(
     assert client._should_fallback_to_polling(RuntimeError("HTTP 403"))
 
 
+def test_failed_connection_backoff_spreads_idle_clients_across_fleet_window(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "idle-backoff-result-spool.json"),
+    )
+    monkeypatch.setattr("random.uniform", lambda _start, _end: 0.0)
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="idle-client-1",
+        task_handler=lambda _: None,
+    )
+
+    delay = client._backoff_delay()
+
+    assert delay == pytest.approx(
+        client.RECONNECT_BASE_DELAY
+        + client._stable_client_offset(client.CLEAN_IDLE_RECONNECT_SPREAD)
+    )
+    assert client._reconnect_attempt == 1
+
+
+def test_failed_connection_backoff_preserves_narrow_busy_client_window(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "busy-backoff-result-spool.json"),
+    )
+    monkeypatch.setattr("random.uniform", lambda _start, _end: 0.0)
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="busy-client-1",
+        task_handler=lambda _: None,
+    )
+    client._active_tasks = 1
+
+    delay = client._backoff_delay()
+
+    assert delay == pytest.approx(
+        client.RECONNECT_BASE_DELAY
+        + client._stable_client_offset(client.CLEAN_BUSY_RECONNECT_SPREAD)
+    )
+    assert delay <= (
+        client.RECONNECT_BASE_DELAY + client.CLEAN_BUSY_RECONNECT_SPREAD
+    )
+
+
 @pytest.mark.asyncio
 async def test_heartbeat_loop_closes_ws_when_send_raises(monkeypatch):
     class _BrokenWS:
