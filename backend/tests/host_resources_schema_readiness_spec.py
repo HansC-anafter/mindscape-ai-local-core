@@ -37,6 +37,17 @@ class _FakeConnection:
                     for version in self.revisions
                 ]
             )
+        if "information_schema.columns" in sql:
+            table_name = str(params.get("table_name") or "")
+            return _Result(
+                rows=[
+                    (column_name,)
+                    for column_name in schema_readiness.REQUIRED_COLUMNS.get(
+                        table_name,
+                        (),
+                    )
+                ]
+            )
         raise AssertionError(f"unexpected query: {sql}")
 
 
@@ -70,7 +81,8 @@ def test_schema_readiness_passes_when_required_revision_tables_and_indexes_exist
     assert report["migration_applied"] is True
     assert report["missing_tables"] == []
     assert report["missing_indexes"] == []
-    assert report["upgrade_command"] == "alembic -c backend/alembic.postgres.ini upgrade head"
+    assert report["scope"] == "host-resource-only"
+    assert report["upgrade_command"] == "alembic -c backend/alembic.postgres.ini upgrade heads"
 
 
 def test_schema_readiness_reports_missing_ledger_objects_for_new_environment():
@@ -105,7 +117,8 @@ def test_schema_readiness_endpoint_returns_read_only_contract(monkeypatch):
             "indexes": {},
             "missing_tables": [],
             "missing_indexes": [],
-            "upgrade_command": "alembic -c backend/alembic.postgres.ini upgrade head",
+            "scope": "host-resource-only",
+            "upgrade_command": "alembic -c backend/alembic.postgres.ini upgrade heads",
             "error": None,
         },
     )

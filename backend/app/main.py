@@ -168,6 +168,9 @@ async def _compute_health_check():
         SystemHealthChecker,
         run_readiness_coro_in_worker,
     )
+    from backend.app.runtime_schema_health_facade import (
+        get_runtime_schema_health_facade,
+    )
 
     global _health_readiness_backoff_until, _health_readiness_backoff_error
     if time.monotonic() < _health_readiness_backoff_until:
@@ -198,6 +201,9 @@ async def _compute_health_check():
         ocr_status = await run_readiness_coro_in_worker(
             lambda: health_checker._check_ocr_service(issues)
         )
+        runtime_schema_compatibility = await run_readiness_coro_in_worker(
+            lambda: get_runtime_schema_health_facade().inspect()
+        )
     except Exception as exc:
         _health_readiness_backoff_error = str(exc)
         _health_readiness_backoff_until = (
@@ -214,6 +220,11 @@ async def _compute_health_check():
     if any(i.severity == "error" for i in issues):
         overall_status = "unhealthy"
     elif any(i.severity == "warning" for i in issues):
+        overall_status = "degraded"
+    if (
+        not runtime_schema_compatibility.get("ready", False)
+        and overall_status == "healthy"
+    ):
         overall_status = "degraded"
 
     backend_role = get_backend_runtime_role()
@@ -284,6 +295,11 @@ async def _compute_health_check():
             "post_ready_runtime_migrations": runtime_migrations_post_ready_status,
             "tool_rag_post_ready": tool_rag_post_ready_status,
             "object_index_sync": object_index_sync_status,
+            "runtime_schema_compatibility": (
+                "ready"
+                if runtime_schema_compatibility.get("ready", False)
+                else "not_ready"
+            ),
         },
         "llm_configured": llm_status.get("configured", False),
         "llm_available": llm_status.get("available", False),
@@ -307,6 +323,8 @@ async def _compute_health_check():
             "error": object_index_sync_error,
             "snapshot": object_index_sync_snapshot,
         },
+        "operational_ready": runtime_schema_compatibility.get("ready", False),
+        "runtime_schema_compatibility": runtime_schema_compatibility,
         "issues": [issue.to_dict() for issue in issues] if issues else [],
     }
 

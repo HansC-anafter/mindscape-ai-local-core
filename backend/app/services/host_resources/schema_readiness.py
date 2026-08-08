@@ -11,7 +11,7 @@ from backend.app.services.stores.postgres_base import PostgresStoreBase
 
 
 REQUIRED_REVISION = "20260604173000"
-UPGRADE_COMMAND = "alembic -c backend/alembic.postgres.ini upgrade head"
+UPGRADE_COMMAND = "alembic -c backend/alembic.postgres.ini upgrade heads"
 REQUIRED_TABLES = (
     "host_resource_reservations",
     "host_resource_events",
@@ -195,6 +195,7 @@ def check_host_resource_schema_readiness(store: Any | None = None) -> dict[str, 
         and migration_applied
     )
     return {
+        "scope": "host-resource-only",
         "ready": ready,
         "connectable": connectable,
         "required_revision": REQUIRED_REVISION,

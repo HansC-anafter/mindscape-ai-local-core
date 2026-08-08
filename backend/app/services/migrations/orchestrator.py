@@ -88,8 +88,14 @@ class MigrationOrchestrator:
         # revision that has already been traversed. Build the full applied
         # ancestry from the current heads before deciding what is still pending.
         current_revisions = set(self._get_current_revisions(db_type))
-        applied_revisions = self._get_applied_revisions(db_type, current_revisions)
-        runtime_known_revisions = self._get_runtime_known_revisions(db_type)
+        catalog_snapshot = self._strict_catalog_snapshot(
+            db_type,
+            current_revisions,
+        )
+        if catalog_snapshot["status"] != "success":
+            return catalog_snapshot
+        applied_revisions = set(catalog_snapshot["applied_revisions"])
+        runtime_known_revisions = set(catalog_snapshot["runtime_known_revisions"])
 
         # Build migration plan
         plan = []
@@ -119,6 +125,51 @@ class MigrationOrchestrator:
             "ignored_migrations": ignored,
         }
 
+    def _strict_catalog_snapshot(
+        self,
+        db_type: str,
+        current_revisions: set[str],
+    ) -> Dict:
+        """Resolve a complete runtime DAG or return a fail-closed error."""
+
+        runtime_known_revisions = self._get_runtime_known_revisions(db_type)
+        if not runtime_known_revisions:
+            return {
+                "status": "error",
+                "error": f"Could not enumerate the {db_type} runtime migration catalog.",
+                "catalog_complete": False,
+                "current_revisions": sorted(current_revisions),
+                "unresolved_current_heads": sorted(current_revisions),
+            }
+
+        unresolved_current_heads = sorted(
+            current_revisions - runtime_known_revisions
+        )
+        if unresolved_current_heads:
+            return {
+                "status": "error",
+                "error": (
+                    f"The {db_type} runtime migration catalog cannot resolve "
+                    f"live heads: {', '.join(unresolved_current_heads)}"
+                ),
+                "catalog_complete": False,
+                "current_revisions": sorted(current_revisions),
+                "unresolved_current_heads": unresolved_current_heads,
+            }
+
+        applied_revisions = self._get_applied_revisions(
+            db_type,
+            current_revisions,
+        )
+        return {
+            "status": "success",
+            "catalog_complete": True,
+            "current_revisions": sorted(current_revisions),
+            "unresolved_current_heads": [],
+            "runtime_known_revisions": sorted(runtime_known_revisions),
+            "applied_revisions": sorted(applied_revisions),
+        }
+
     def _dry_run_host_catalog(self, db_type: str) -> Dict:
         """Plan an isolated host-owned migration catalog without pack metadata."""
 
@@ -129,7 +180,17 @@ class MigrationOrchestrator:
                 "error": f"Could not load the {db_type} migration catalog.",
             }
         current_revisions = set(self._get_current_revisions(db_type))
-        applied_revisions = self._get_applied_revisions(db_type, current_revisions)
+        catalog_snapshot = self._strict_catalog_snapshot(
+            db_type,
+            current_revisions,
+        )
+        if catalog_snapshot["status"] != "success":
+            return {
+                **catalog_snapshot,
+                "status": "revision_catalog_unavailable",
+                "target_revision": revision,
+            }
+        applied_revisions = set(catalog_snapshot["applied_revisions"])
         try:
             ordered = list(reversed(list(script_dir.walk_revisions())))
         except Exception as exc:

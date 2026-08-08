@@ -203,6 +203,85 @@ def _resolve_capability_version_locations(
     return resolved_locations
 
 
+def _active_capability_revision_ids(
+    *,
+    capabilities_root: Path,
+    db_type: str,
+    excluded_capability_codes: set[str] | None = None,
+) -> set[str]:
+    """Return active revision ownership and reject capability-to-capability collisions."""
+
+    excluded = {str(code).strip() for code in (excluded_capability_codes or set())}
+    owners: dict[str, set[str]] = {}
+    scanner = MigrationScanner(capabilities_root)
+    for metadata in scanner.scan_capabilities():
+        if metadata.capability_code in excluded or metadata.db_type != db_type:
+            continue
+        for rel_path in metadata.migration_paths:
+            candidate = (capabilities_root / metadata.capability_code / rel_path).resolve()
+            if not candidate.is_dir():
+                continue
+            for revision_file in _iter_revision_files(candidate):
+                revision_id = _read_revision_id(revision_file)
+                if revision_id:
+                    owners.setdefault(revision_id, set()).add(metadata.capability_code)
+
+    collisions = {
+        revision_id: sorted(capability_codes)
+        for revision_id, capability_codes in owners.items()
+        if len(capability_codes) > 1
+    }
+    if collisions:
+        details = ", ".join(
+            f"{revision_id}={'+'.join(capability_codes)}"
+            for revision_id, capability_codes in sorted(collisions.items())
+        )
+        raise ValueError(f"Active capability migration revision collision: {details}")
+    return set(owners)
+
+
+def _replace_shadowed_pack_tombstones(
+    *,
+    declared_locations: list[str],
+    active_capability_revision_ids: set[str],
+    db_type: str,
+) -> list[str]:
+    """Stage declared catalogs without tombstones owned by active capabilities."""
+
+    resolved: list[str] = []
+    for index, location in enumerate(declared_locations):
+        source_dir = Path(location)
+        revision_files = _iter_revision_files(source_dir)
+        retained: list[Path] = []
+        shadowed = False
+        for revision_file in revision_files:
+            revision_id = _read_revision_id(revision_file)
+            is_pack_tombstone = revision_file.name.endswith(
+                "_pack_schema_tombstone.py"
+            )
+            if (
+                is_pack_tombstone
+                and revision_id
+                and revision_id in active_capability_revision_ids
+            ):
+                shadowed = True
+                continue
+            retained.append(revision_file)
+        if not shadowed:
+            resolved.append(location)
+            continue
+        if retained:
+            resolved.append(
+                _stage_runtime_revision_subset(
+                    db_type=db_type,
+                    capability_code=f"local_core_{index}",
+                    source_dir=source_dir,
+                    revision_files=retained,
+                )
+            )
+    return resolved
+
+
 def configure_runtime_version_locations(
     config: Config,
     *,
@@ -212,6 +291,16 @@ def configure_runtime_version_locations(
 ) -> list[str]:
     """Merge declared Alembic version paths with runtime capability migration paths."""
     declared_locations = _resolve_declared_version_locations(config)
+    active_revision_ids = _active_capability_revision_ids(
+        capabilities_root=capabilities_root,
+        db_type=db_type,
+        excluded_capability_codes=excluded_capability_codes,
+    )
+    declared_locations = _replace_shadowed_pack_tombstones(
+        declared_locations=declared_locations,
+        active_capability_revision_ids=active_revision_ids,
+        db_type=db_type,
+    )
     known_revision_ids = _collect_known_revision_ids(declared_locations)
     merged_locations: list[str] = []
     for location in [

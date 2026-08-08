@@ -50,6 +50,7 @@ def status_command(db_type: str):
             print(f"  - {migration.get('capability')}: {migration.get('revision')}")
     else:
         print("\nNo pending migrations.")
+    return result
 
 
 def dry_run_command(db_type: str):
@@ -76,6 +77,7 @@ def dry_run_command(db_type: str):
         print(f"Error: {result.get('error')}")
     elif result.get('status') == 'no_migrations':
         print("No migrations found for this database type.")
+    return result
 
 
 def apply_command(
@@ -103,7 +105,7 @@ def apply_command(
             print(f"  - {pending_revision}")
         if result.get('error'):
             print(f"Error: {result.get('error')}")
-        return
+        return result
     if dry_run:
         return dry_run_command(db_type)
 
@@ -140,6 +142,17 @@ def apply_command(
         'failed',
     }:
         print(f"Error: {result.get('error')}")
+    return result
+
+
+def _result_exit_code(result: dict | None) -> int:
+    if not result:
+        return 2
+    status = result.get("status")
+    migration_plan = result.get("migration_plan")
+    if status is None and isinstance(migration_plan, dict):
+        status = migration_plan.get("status")
+    return 0 if status in {"success", "completed", "up_to_date", "no_migrations"} else 2
 
 
 def normalize_heads_command(db_type: str, *, apply: bool) -> None:
@@ -214,17 +227,21 @@ def main():
 
     args = parser.parse_args()
 
+    result = None
     if args.command == 'status':
-        status_command(args.db)
+        result = status_command(args.db)
     elif args.command == 'dry-run':
-        dry_run_command(args.db)
+        result = dry_run_command(args.db)
     elif args.command == 'apply':
-        apply_command(args.db, dry_run=args.dry_run, revision=args.revision)
+        result = apply_command(args.db, dry_run=args.dry_run, revision=args.revision)
     elif args.command == "normalize-heads":
         normalize_heads_command(args.db, apply=args.apply)
+        return 0
     else:
         parser.print_help()
+        return 2
+    return _result_exit_code(result)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
