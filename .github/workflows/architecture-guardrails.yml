@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'backend/app/**'
+      - 'backend/features/**'
+      - 'backend/scripts/**'
       - 'backend/features/workspace/executions_core/progress_snapshot.py'
       - 'backend/scripts/preflight_db.py'
       - 'backend/alembic.vector.ini'
@@ -17,6 +19,9 @@ on:
       - 'mcp-mindscape-gateway/**'
       - 'web-console/**'
       - 'scripts/ci/**'
+      - 'scripts/start.*'
+      - 'scripts/compose.*'
+      - 'scripts/runtime_secrets/**'
       - 'scripts/maintenance/runtime_pressure_gate.py'
       - 'scripts/maintenance/runtime_pressure_gate_core/**'
       - 'schemas/manifest.schema.yaml'
@@ -52,6 +57,8 @@ on:
     branches: [master, main]
     paths:
       - 'backend/app/**'
+      - 'backend/features/**'
+      - 'backend/scripts/**'
       - 'backend/features/workspace/executions_core/progress_snapshot.py'
       - 'backend/scripts/preflight_db.py'
       - 'backend/alembic.vector.ini'
@@ -65,6 +72,9 @@ on:
       - 'mcp-mindscape-gateway/**'
       - 'web-console/**'
       - 'scripts/ci/**'
+      - 'scripts/start.*'
+      - 'scripts/compose.*'
+      - 'scripts/runtime_secrets/**'
       - 'scripts/maintenance/runtime_pressure_gate.py'
       - 'scripts/maintenance/runtime_pressure_gate_core/**'
       - 'schemas/manifest.schema.yaml'
