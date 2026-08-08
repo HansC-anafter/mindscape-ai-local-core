@@ -199,6 +199,9 @@ export function createFrontendProxyServer({
         requestId,
         nextProxyTarget,
         stripRemoteIdentityHeaders: remoteIngress,
+        trustedRemoteIdentity: remoteIngress
+          ? requestResult.verified_principal
+          : null,
         onComplete: observation
           ? (event) => {
               void remoteWorkbenchObservability.recordCompletedRequest(observation, event);

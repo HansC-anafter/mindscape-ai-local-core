@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 LOCAL_CONTROL_OPERATOR_USER_ID = "local-core-control-plane"
 DEFAULT_LOCAL_USER_ID = "default-user"
 _LOCAL_OPERATOR_HOSTNAMES = {"localhost", "127.0.0.1", "::1"}
+_REMOTE_GATEWAY_PROVIDER = "cloudflare-access"
 
 
 @dataclass
@@ -35,6 +36,10 @@ class AuthContext:
     knowledge_permissions: List[Mapping[str, Any]] = field(default_factory=list)
     auth_revision: Optional[str] = None
     is_cloud_mode: bool = False
+    identity_provider: Optional[str] = None
+    identity_issuer: Optional[str] = None
+    identity_subject: Optional[str] = None
+    verified_email: Optional[str] = None
 
 
 def is_cloud_mode() -> bool:
@@ -101,6 +106,19 @@ async def get_auth_from_cloud_integration_token(token: str) -> Optional[AuthCont
                     knowledge_permissions=data.get("knowledge_permissions", []),
                     auth_revision=data.get("auth_revision"),
                     is_cloud_mode=True,
+                    identity_provider=data.get(
+                        "identity_provider",
+                        "cloud-integration",
+                    ),
+                    identity_issuer=data.get(
+                        "identity_issuer",
+                        data.get("tenant_id", "cloud-integration"),
+                    ),
+                    identity_subject=data.get(
+                        "identity_subject",
+                        data.get("user_id", ""),
+                    ),
+                    verified_email=data.get("verified_email"),
                 )
             else:
                 logger.warning(f"cloud-integration auth failed: {resp.status_code}")
@@ -123,16 +141,111 @@ async def get_auth_from_site_hub_token(token: str) -> Optional[AuthContext]:
     return await get_auth_from_cloud_integration_token(token)
 
 
-def _get_local_workspace_ids(user_id: str) -> List[str]:
-    """Load local workspace scope only for callers that explicitly need it."""
+def _get_workspace_ids_for_identity(
+    *,
+    provider: str,
+    issuer: str,
+    subject: str,
+) -> List[str]:
+    """Load workspace scope through the provider-neutral access facade."""
     try:
-        from ..services.mindscape_store import MindscapeStore
+        from ..services.workspace_access_control.contracts import VerifiedIdentity
+        from ..services.workspace_access_control.facade import (
+            WorkspaceAccessControlFacade,
+        )
 
-        store = MindscapeStore()
-        return store.list_workspace_ids(owner_user_id=user_id, limit=200)
+        return WorkspaceAccessControlFacade().list_authorized_workspace_ids(
+            identity=VerifiedIdentity(
+                provider=provider,
+                issuer=issuer,
+                subject=subject,
+            ),
+            limit=200,
+        )
     except Exception as e:
         logger.warning(f"Failed to get workspace_ids: {e}")
         return []
+
+
+def _get_local_workspace_ids(user_id: str) -> List[str]:
+    return _get_workspace_ids_for_identity(
+        provider="local",
+        issuer="local-core",
+        subject=user_id,
+    )
+
+
+def _get_remote_gateway_identity(
+    request: Request,
+    *,
+    include_workspace_ids: bool,
+) -> AuthContext | None:
+    """Accept only identity headers replaced by the loopback remote gateway."""
+    if request.headers.get("x-mindscape-remote-ingress") != "remote_workbench":
+        return None
+    client_host = request.client.host if request.client else None
+    if client_host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="trusted_gateway_required")
+    provider = request.headers.get("x-mindscape-identity-provider", "")
+    issuer = request.headers.get("x-mindscape-identity-issuer", "")
+    subject = request.headers.get("x-mindscape-identity-subject", "")
+    email = request.headers.get("x-mindscape-identity-email")
+    try:
+        parsed_issuer = urlsplit(issuer)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="verified_identity_required",
+        ) from exc
+    invalid_text = (
+        not subject
+        or len(subject) > 255
+        or any(ord(character) < 32 or ord(character) == 127 for character in subject)
+    )
+    if (
+        provider != _REMOTE_GATEWAY_PROVIDER
+        or invalid_text
+        or parsed_issuer.scheme != "https"
+        or not parsed_issuer.hostname
+        or not parsed_issuer.hostname.endswith(".cloudflareaccess.com")
+        or parsed_issuer.path
+        or parsed_issuer.query
+        or parsed_issuer.fragment
+    ):
+        raise HTTPException(status_code=401, detail="verified_identity_required")
+    if email is not None:
+        normalized_email = email.strip().lower()
+        if (
+            len(normalized_email) > 320
+            or normalized_email.count("@") != 1
+            or "." not in normalized_email.rsplit("@", 1)[1]
+            or any(
+                ord(character) < 32 or ord(character) == 127
+                for character in normalized_email
+            )
+        ):
+            raise HTTPException(status_code=401, detail="verified_identity_required")
+        email = normalized_email
+
+    workspace_ids = (
+        _get_workspace_ids_for_identity(
+            provider=provider,
+            issuer=issuer,
+            subject=subject,
+        )
+        if include_workspace_ids
+        else []
+    )
+    return AuthContext(
+        user_id=subject,
+        tenant_id=issuer,
+        workspace_ids=workspace_ids,
+        is_cloud_mode=True,
+        identity_provider=provider,
+        identity_issuer=issuer,
+        identity_subject=subject,
+        verified_email=email,
+    )
 
 
 def _validate_local_operator_origin(request: Request) -> None:
@@ -183,6 +296,13 @@ async def _get_authenticated_context(
     enforce_local_operator_origin: bool = False,
 ) -> AuthContext:
     """Resolve an authenticated identity with an optional workspace projection."""
+    remote_context = _get_remote_gateway_identity(
+        request,
+        include_workspace_ids=include_local_workspace_ids,
+    )
+    if remote_context is not None:
+        return remote_context
+
     # Cloud mode
     if is_cloud_mode():
         if not allow_cloud_auth:
@@ -225,6 +345,9 @@ async def _get_authenticated_context(
         workspace_ids=workspace_ids,
         group_ids=[],
         is_cloud_mode=False,
+        identity_provider="local",
+        identity_issuer="local-core",
+        identity_subject=user_id,
     )
 
 

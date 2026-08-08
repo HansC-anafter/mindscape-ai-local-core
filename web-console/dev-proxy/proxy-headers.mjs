@@ -45,7 +45,10 @@ function stripCloudflareAccessCookie(value) {
 export function copyProxyRequestHeaders(
   headers,
   target,
-  { stripRemoteIdentityHeaders = false } = {},
+  {
+    stripRemoteIdentityHeaders = false,
+    trustedRemoteIdentity = null,
+  } = {},
 ) {
   const nextHeaders = {};
   for (const [key, value] of Object.entries(headers || {})) {
@@ -71,6 +74,14 @@ export function copyProxyRequestHeaders(
   nextHeaders['x-mindscape-web-console-proxy'] = '1';
   if (stripRemoteIdentityHeaders) {
     nextHeaders[REMOTE_INGRESS_HEADER] = 'remote_workbench';
+    if (trustedRemoteIdentity) {
+      nextHeaders['x-mindscape-identity-provider'] = trustedRemoteIdentity.provider;
+      nextHeaders['x-mindscape-identity-issuer'] = trustedRemoteIdentity.issuer;
+      nextHeaders['x-mindscape-identity-subject'] = trustedRemoteIdentity.subject;
+      if (trustedRemoteIdentity.email) {
+        nextHeaders['x-mindscape-identity-email'] = trustedRemoteIdentity.email;
+      }
+    }
   }
   return nextHeaders;
 }

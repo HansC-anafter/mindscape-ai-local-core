@@ -12,6 +12,9 @@ import {
   normalizeRuntimeAccessPolicy,
   resolveMobileWorkbenchGatewayConfig,
 } from './mobile-workbench-gateway.mjs';
+import {
+  permissionsForRole,
+} from './mobile-workbench-gateway/role-permission-contract.mjs';
 
 export const ACCESS_ISSUER = 'https://shy-resonance-542b.cloudflareaccess.com';
 export const ACCESS_AUDIENCE = '94cce07bfe76d9b3903ee15316df231bb6b0c004e0a68114b8e965b2710e8b1f';
@@ -120,6 +123,24 @@ export function createEffectivePolicyPayload({
   capabilityCodes = ['yogacoach'],
   fingerprint = AUTH_CONFIG_FINGERPRINT,
 } = {}) {
+  const roleAwarePrincipals = effectivePrincipals.map((principal) => {
+    const roleKeys = principal.role_keys || [
+      principal.grant_sources.includes('local_core_super_admin')
+        ? 'local_core_super_admin'
+        : 'workspace_editor',
+    ];
+    const permissions = new Set();
+    for (const roleKey of roleKeys) {
+      for (const permission of permissionsForRole(roleKey)) {
+        permissions.add(permission);
+      }
+    }
+    return {
+      ...principal,
+      role_keys: roleKeys,
+      permissions: [...permissions].sort(),
+    };
+  });
   return {
     workspace_id: workspaceId,
     access_issuer: ACCESS_ISSUER,
@@ -131,9 +152,11 @@ export function createEffectivePolicyPayload({
     runtime_policy_source: 'persisted_policy',
     local_core_super_admins: administrators,
     allowed_principals: directPrincipals,
-    effective_principals: effectivePrincipals,
+    effective_principals: roleAwarePrincipals,
     allowed_capability_codes: capabilityCodes,
     workspace_policy_source: 'persisted_policy',
+    workspace_access_revision: 1,
+    workspace_access_source: 'local_core_access_facade',
     updated_by: 'local-operator',
     created_at: '2026-07-13T00:00:00Z',
     updated_at: '2026-07-13T00:00:00Z',

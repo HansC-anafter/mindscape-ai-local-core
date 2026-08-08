@@ -11,6 +11,9 @@ import {
   PRINCIPAL_STATUSES,
   REMOTE_ACCESS_STATES,
 } from './constants.mjs';
+import {
+  normalizeRolePermissionFields,
+} from './role-permission-contract.mjs';
 
 const PENDING_SUBJECT = 'pending_identity_resolution';
 const MAX_SUBJECT_LENGTH = 512;
@@ -273,6 +276,7 @@ function normalizeEffectivePrincipalList(values) {
       subject: normalizeSubject(row.subject),
       email: normalizeEmail(row.email),
       grantSources: normalizeGrantSources(row.grant_sources),
+      ...normalizeRolePermissionFields(row, malformed),
     };
     if (seen.has(normalized.subject)) {
       malformed('duplicate_effective_principal');
@@ -352,6 +356,13 @@ export function normalizeEffectiveWorkspacePolicy(payload, expectedWorkspaceId) 
   const directPrincipals = normalizeDirectPrincipalList(row.allowed_principals);
   const effectivePrincipals = normalizeEffectivePrincipalList(row.effective_principals);
   const allowedCapabilityCodes = normalizeCapabilityCodes(row.allowed_capability_codes);
+  const workspaceAccessRevision = normalizeRevision(
+    row.workspace_access_revision,
+    'invalid_workspace_access_revision',
+  );
+  if (row.workspace_access_source !== 'local_core_access_facade') {
+    malformed('invalid_workspace_access_source');
+  }
   if (row.runtime_policy_source !== 'persisted_policy') {
     malformed('active_runtime_policy_source_mismatch');
   }
@@ -382,6 +393,8 @@ export function normalizeEffectiveWorkspacePolicy(payload, expectedWorkspaceId) 
     directPrincipals,
     effectivePrincipals,
     allowedCapabilityCodes,
+    workspaceAccessRevision,
+    workspaceAccessSource: row.workspace_access_source,
     workspacePolicySource: row.workspace_policy_source,
     source: row.source,
   };

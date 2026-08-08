@@ -24,3 +24,30 @@ test('remote proxy replaces every client marker with the trusted value', () => {
 
   assert.equal(headers['x-mindscape-remote-ingress'], 'remote_workbench');
 });
+
+test('remote proxy replaces spoofed identity headers with verified claims', () => {
+  const headers = copyProxyRequestHeaders(
+    {
+      'x-mindscape-identity-provider': 'spoofed',
+      'x-mindscape-identity-subject': 'spoofed',
+    },
+    target,
+    {
+      stripRemoteIdentityHeaders: true,
+      trustedRemoteIdentity: {
+        provider: 'cloudflare-access',
+        issuer: 'https://example.cloudflareaccess.com',
+        subject: 'verified-subject',
+        email: 'person@example.com',
+      },
+    },
+  );
+
+  assert.equal(headers['x-mindscape-identity-provider'], 'cloudflare-access');
+  assert.equal(
+    headers['x-mindscape-identity-issuer'],
+    'https://example.cloudflareaccess.com',
+  );
+  assert.equal(headers['x-mindscape-identity-subject'], 'verified-subject');
+  assert.equal(headers['x-mindscape-identity-email'], 'person@example.com');
+});

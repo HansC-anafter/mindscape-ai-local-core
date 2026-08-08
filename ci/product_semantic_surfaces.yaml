@@ -867,6 +867,7 @@ surfaces:
       - Core Settings is the only global administrator writer; Workspace Settings exposes one cold read-only effective-membership projection, while Pack Remote access remains the only workspace capability-code writer.
       - Global and workspace settings use separate installed-pack sections, and workspace hosts exclude global descriptors so no second policy editor or hidden policy read is mounted.
       - Policy control routes reuse host authentication through the audit-only local-core-control-plane actor without default-user or workspace reads; it grants no membership or resource role and preserves the one-statement effective-policy read budget.
+      - Human administrator and direct-member authority in this v1 surface is superseded by psc.local-core.account-workspace-role-access-governance.v1 after its single cutover receipt; JWT, origin, capability, path, support, resource, cache, payload, and public-surface restrictions remain active and may only narrow access.
     path_globs:
       - backend/app/dependencies/auth.py
       - backend/app/routes/core/capability_packs_core/installed_routes.py
@@ -909,6 +910,42 @@ surfaces:
       - scripts/install-remote-workbench-bridge-macos.sh
       - scripts/config/ai.mindscape.remote-workbench-bridge.plist
       - docker-compose.yml
+
+  - id: psc.local-core.account-workspace-role-access-governance.v1
+    tier: P0
+    owner: "@team-leads"
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-account-role-access-governance-contract-2026-07-29.zh-TW.md
+    requires_product_semantic_declaration: true
+    semantics:
+      - WorkspaceAccessControlFacade is the only provider-neutral authority for human principals, verified identity bindings, fixed system-role grants, invitations, scope revisions, access audit, and effective permissions across local and remote workspace consumers.
+      - Version one supports only local_core and exact workspace scopes, one active fixed role per principal and scope, permission-atom checks by every caller, no group-topology inheritance, and independent capability, path, support, resource, and knowledge gates that may only narrow access.
+      - The default-user local identity is deterministically seeded as the recovery administrator, while local-core-control-plane remains only an operator and audit actor and never becomes a human principal or grant holder.
+      - Host migration owns generic schema, local recovery, and workspace owner backfill; a Cloud pack adapter may read pack-owned legacy membership and call the facade import seam, but no pack may write generic access tables or remain an authorization owner after cutover.
+      - Core Settings retains its stable remote_workbench_access tab id but exposes the only Accounts and access editor, WorkspaceSettingsToolPanel seventh cold section exposes the only exact-workspace Members and access editor, and WorkspaceSettings.tsx, public Remote Workbench, and pack diagnostics never become additional grant writers.
+      - Invite tokens are hash-only at rest, shown once, absent from logs, audit, analytics, evidence and client storage, and consumed only by an authenticated no-store, no-referrer, exact-origin POST; provider or issuer changes never auto-link by email.
+      - Effective cache misses use one indexed core-database statement; member pages use one bounded statement; mutations use one transaction; no authorization service, worker, queue, scheduler, PgBouncer pool, SSE, event bus, timer polling, or per-member request is added.
+    path_globs:
+      - backend/alembic_migrations/postgres/versions/*workspace_access*
+      - backend/app/app_bootstrap/workspace_access_control_routes.py
+      - backend/app/dependencies/workspace_access.py
+      - backend/app/services/workspace_access_control/**
+      - backend/app/routes/core/workspace_access/**
+      - backend/app/routes/core/workspace/**
+      - backend/app/dependencies/auth.py
+      - backend/tests/workspace_access_control/**
+      - web-console/src/app/settings/page.tsx
+      - web-console/src/app/settings/types.ts
+      - web-console/src/app/settings/navigation/settingsNavigationRegistry.ts
+      - web-console/src/app/settings/components/SettingsContentHost.tsx
+      - web-console/src/app/settings/components/panels/*Access*
+      - web-console/src/app/workspaces/*/components/*Settings*
+      - web-console/src/components/workspace-tools/**
+      - web-console/src/lib/workspace-access-control*
+      - web-console/dev-proxy/mobile-workbench-gateway/policy-contract.mjs
+      - web-console/dev-proxy/mobile-workbench-gateway/role-permission-contract.mjs
+      - web-console/dev-proxy/mobile-workbench-gateway/workspace-permission-rules.mjs
+      - web-console/dev-proxy/mobile-workbench-gateway/authorization.mjs
+      - web-console/dev-proxy/mobile-workbench-gateway-policy-resolver.mjs
 
   - id: psc.local-core.remote-workbench-local-bridge-liveness.v1
     tier: P0

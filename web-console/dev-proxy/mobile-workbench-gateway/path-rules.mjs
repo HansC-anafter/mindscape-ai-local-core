@@ -34,6 +34,20 @@ export function isPublicBootAssetPath(pathname = '/', requestMethod = 'GET') {
   return pathname === '/favicon.ico' || pathname.startsWith('/_next/static/');
 }
 
+export function isInvitationAcceptancePath(
+  pathname = '/',
+  requestMethod = 'GET',
+) {
+  const method = String(requestMethod || 'GET').toUpperCase();
+  return (
+    (pathname === '/access/invitations/accept' && method === 'GET')
+    || (
+      pathname === '/api/v1/access-control/invitations/accept'
+      && method === 'POST'
+    )
+  );
+}
+
 export function isFixedRemoteWorkspacePathAllowed(pathname = '/', requestMethod = 'GET') {
   return REMOTE_WORKSPACE_PATH_RULES.some((rule) => matchesRule(pathname, rule, requestMethod));
 }

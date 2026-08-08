@@ -21,8 +21,8 @@ const CapabilityExtensionSlot = React.lazy(() => import('../components/Capabilit
 const StoragePathConfigModal = React.lazy(() => import('@/components/StoragePathConfigModal'));
 
 export {
-  WorkspaceRemoteAccessSection as RemoteAccessSection,
-} from './workspaceSettingsSections/WorkspaceRemoteAccessSection';
+  WorkspaceMembersAccessSection as MembersAccessSection,
+} from './workspaceSettingsSections/WorkspaceMembersAccessSection';
 
 export function ExecutionSection({
   apiUrl,

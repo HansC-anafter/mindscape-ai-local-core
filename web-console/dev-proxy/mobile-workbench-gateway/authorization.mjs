@@ -7,9 +7,13 @@ import {
 import {
   fixedRemoteWorkspacePathRequiresCapabilityQuery,
   isFixedRemoteWorkspacePathAllowed,
+  isInvitationAcceptancePath,
   isReadOnlyRemotePath,
   matchesRule,
 } from './path-rules.mjs';
+import {
+  requiredWorkspacePermission,
+} from './workspace-permission-rules.mjs';
 
 function denyRequest(reasonCode, statusCode, requestUrl, context, details = {}) {
   return {
@@ -200,6 +204,17 @@ export async function authorizeRemoteWorkbenchRequest(
       verification_stage: 'principal_verified',
     });
   }
+  if (isInvitationAcceptancePath(context.path, requestMethod)) {
+    return allowRequest(requestUrl, context, {
+      verified_principal: {
+        provider: 'cloudflare-access',
+        issuer: principal.issuer,
+        subject: principal.subject,
+        email: principal.email,
+      },
+      invitation_acceptance: true,
+    });
+  }
 
   if (config.remoteAccessState === 'enrollment_only') {
     const designation = findPendingDesignation(config, principal);
@@ -223,6 +238,12 @@ export async function authorizeRemoteWorkbenchRequest(
   if (context.isBootAsset && !context.workspaceId) {
     return allowRequest(requestUrl, context, {
       principal_subject: principal.subject,
+      verified_principal: {
+        provider: 'cloudflare-access',
+        issuer: principal.issuer,
+        subject: principal.subject,
+        email: principal.email,
+      },
       boot_asset: true,
     });
   }
@@ -286,6 +307,16 @@ export async function authorizeRemoteWorkbenchRequest(
       verification_stage: 'principal_verified',
     });
   }
+  const requiredPermission = requiredWorkspacePermission(context, requestMethod);
+  if (
+    !requiredPermission
+    || !effectivePrincipal.permissions.includes(requiredPermission)
+  ) {
+    return denyRequest('workspace_permission_required', 403, requestUrl, context, {
+      verification_stage: 'principal_verified',
+      required_permission: requiredPermission,
+    });
+  }
 
   if (context.capabilityCode) {
     const capabilityAllowed = effectivePolicy.allowedCapabilityCodes.includes(
@@ -321,7 +352,15 @@ export async function authorizeRemoteWorkbenchRequest(
 
   return allowRequest(requestUrl, context, {
     principal_subject: principal.subject,
+    verified_principal: {
+      provider: 'cloudflare-access',
+      issuer: principal.issuer,
+      subject: principal.subject,
+      email: principal.email,
+    },
     grant_sources: [...effectivePrincipal.grantSources],
+    effective_permissions: [...effectivePrincipal.permissions],
+    required_permission: requiredPermission,
     allowed_capability_codes: [...effectivePolicy.allowedCapabilityCodes],
   });
 }

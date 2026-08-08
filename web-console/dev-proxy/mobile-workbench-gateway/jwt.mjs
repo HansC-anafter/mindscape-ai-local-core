@@ -134,13 +134,27 @@ function validateClaims(claims, {
   if (iat - clockSkewSeconds > nowEpochSeconds || exp < iat) {
     throw new Error('invalid_access_token_iat');
   }
-  if (typeof claims.sub !== 'string' || !claims.sub.trim() || claims.sub.trim().length > MAX_SUBJECT_LENGTH) {
+  if (
+    typeof claims.sub !== 'string'
+    || !claims.sub.trim()
+    || claims.sub.trim().length > MAX_SUBJECT_LENGTH
+    || /[\u0000-\u001f\u007f]/.test(claims.sub)
+  ) {
     throw new Error('missing_or_invalid_access_token_subject');
   }
   const email = claims.email === undefined || claims.email === null
     ? null
     : String(claims.email).trim().toLowerCase();
-  if (email !== null && (!email || email.length > MAX_EMAIL_LENGTH)) {
+  if (
+    email !== null
+    && (
+      !email
+      || email.length > MAX_EMAIL_LENGTH
+      || email.split('@').length !== 2
+      || !email.split('@')[1].includes('.')
+      || /[\u0000-\u001f\u007f]/.test(email)
+    )
+  ) {
     throw new Error('invalid_access_token_email');
   }
   return {
