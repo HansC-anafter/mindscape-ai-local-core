@@ -12,6 +12,7 @@ import {
 } from '@/components/capabilities/workbench/CapabilityWorkbenchInfoProvider';
 import { PackScopeToolContributionsProvider } from '@/components/capabilities/workbench/usePackScopeToolContributions';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useT } from '@/lib/i18n';
 import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
   WORKBENCH_LEFT_TOOL_RAIL_SLOT,

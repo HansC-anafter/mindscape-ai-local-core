@@ -4,9 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import './WorkspaceSurfaceShell.test-support';
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import type {
+  CapabilityUiLocalizationBridgeV1,
+} from '@/lib/capability-ui-localization';
 import { fetchWorkspaceToolDefinitions } from '@/lib/workspace-tools/workspace-tool-registry';
 import { useRunObservationsSummary } from '@/lib/workspace-runs/useRunObservationsSummary';
+import { CapabilityHostLocalizationProvider } from './CapabilityHostLocalizationContext';
 import WorkspaceSurfaceShell from './WorkspaceSurfaceShell';
+
+const bridge: CapabilityUiLocalizationBridgeV1 = {
+  contract: 'mindscape-capability-ui-localization-bridge-v1',
+  requestedLocale: 'zh-TW',
+  effectiveLocale: 'zh-TW',
+  direction: 'ltr',
+  sourceLocale: 'en',
+  status: 'ready',
+  t: (key) => `translated:${key}`,
+};
 
 describe('WorkspaceSurfaceShell tool rail', () => {
   beforeEach(() => {
@@ -219,13 +233,18 @@ describe('WorkspaceSurfaceShell tool rail', () => {
     } as Response);
 
     render(
-      <WorkspaceSurfaceShell
-        workspaceId="ws_ig"
-        activeCapabilityCode="ig"
-        surfacePath={[]}
+      <CapabilityHostLocalizationProvider
+        capabilityCode="ig"
+        localizationPromise={Promise.resolve(bridge)}
       >
-        <div data-testid="surface-content">IG workbench</div>
-      </WorkspaceSurfaceShell>,
+        <WorkspaceSurfaceShell
+          workspaceId="ws_ig"
+          activeCapabilityCode="ig"
+          surfacePath={[]}
+        >
+          <div data-testid="surface-content">IG workbench</div>
+        </WorkspaceSurfaceShell>
+      </CapabilityHostLocalizationProvider>,
     );
 
     expect(fetchSpy).not.toHaveBeenCalledWith(

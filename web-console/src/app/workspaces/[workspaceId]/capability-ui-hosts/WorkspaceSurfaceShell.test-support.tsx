@@ -22,7 +22,36 @@ vi.mock('@/lib/i18n', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/i18n')>();
   return {
     ...actual,
-    useT: () => ((key: string) => (key === 'workspacePackTool' ? 'Pack' : null)),
+    useT: () => ((key: string, values?: Record<string, unknown>) => {
+      const messages: Record<string, string> = {
+        workspacePackTool: 'Pack',
+        workspaceToolActiveRuns: 'Active Runs',
+        workspaceToolPausedRuns: 'Paused Runs',
+        workspaceToolActive: 'Active',
+        workspaceToolPaused: 'Paused',
+        workspaceToolLoadingRuns: 'Loading capability runs...',
+        workspaceToolLoading: 'Loading tool...',
+        workspaceToolLoadFailed: 'Tool failed to load.',
+        workspaceToolTogglePanel: 'Toggle active workspace tool panel',
+        workspaceToolRailAriaLabel: 'Capability host tools',
+        workspaceToolRuns: 'Runs',
+        workspaceToolSettings: 'Settings',
+        workspaceToolPack: 'Pack',
+        workspaceToolMotionSource: 'Motion Source',
+        workspaceToolGraph: 'Graph',
+        workspaceToolInfo: 'Info',
+        workspaceToolWorkspace: 'Workspace',
+        workspaceToolRuntime: 'Runtime',
+        workspaceToolRuntimeTools: 'Tool Runtime',
+      };
+      if (key === 'workspaceToolClose') {
+        return `Close ${String(values?.label || '')}`;
+      }
+      if (key === 'workspaceToolLoadingNamed') {
+        return `Loading ${String(values?.label || '')}...`;
+      }
+      return messages[key] || key;
+    }),
   };
 });
 
