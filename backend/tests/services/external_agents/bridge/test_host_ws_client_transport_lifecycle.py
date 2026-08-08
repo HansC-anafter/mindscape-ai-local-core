@@ -11,6 +11,10 @@ def test_resume_state_uses_exact_result_identity_without_timestamp_sweep(
     monkeypatch, tmp_path
 ):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "resume-result-spool.json"),
+    )
     client = HostBridgeWSClient(
         workspace_id="ws-1",
         host="localhost:8200",
@@ -36,6 +40,92 @@ def test_resume_state_uses_exact_result_identity_without_timestamp_sweep(
         "pending_rest_execution_ids": ["pending-execution"],
         "last_completed_at": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_run_uses_websocket_as_readiness_probe_without_http_preflight(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("MINDSCAPE_BACKEND_API_URL", "http://localhost:8220")
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "run-result-spool.json"),
+    )
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    connected: list[str] = []
+
+    async def _connect_once():
+        connected.append(client.ws_url)
+        client._running = False
+
+    def _unexpected_http_preflight(*_args, **_kwargs):
+        raise AssertionError("per-client HTTP readiness probe must not run")
+
+    monkeypatch.setattr(client, "_connect_and_listen", _connect_once)
+    monkeypatch.setattr(
+        client,
+        "_should_auto_register_host_session_runtime",
+        lambda: False,
+    )
+    monkeypatch.setattr(
+        "backend.app.services.external_agents.bridge.host_ws_client_core.transport_mixin.urllib.request.urlopen",
+        _unexpected_http_preflight,
+    )
+
+    await client.run()
+
+    assert connected == [client.ws_url]
+
+
+def test_temporary_websocket_failure_does_not_downgrade_to_polling(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "timeout-result-spool.json"),
+    )
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    client._ws_forbidden_count = client.WS_FORBIDDEN_POLLING_THRESHOLD - 1
+
+    assert not client._should_fallback_to_polling(
+        TimeoutError("timed out during opening handshake")
+    )
+    assert client._ws_forbidden_count == 0
+
+
+def test_explicit_websocket_403_keeps_existing_polling_fallback(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "forbidden-result-spool.json"),
+    )
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+
+    assert not client._should_fallback_to_polling(RuntimeError("HTTP 403"))
+    assert not client._should_fallback_to_polling(RuntimeError("HTTP 403"))
+    assert client._should_fallback_to_polling(RuntimeError("HTTP 403"))
 
 
 @pytest.mark.asyncio
@@ -68,6 +158,7 @@ async def test_heartbeat_loop_closes_ws_when_send_raises(monkeypatch):
     await client._heartbeat_loop()
 
     assert client._ws.closed is True
+
 
 @pytest.mark.asyncio
 async def test_connect_and_listen_recreates_pong_event_per_connection(monkeypatch):
@@ -114,6 +205,7 @@ async def test_connect_and_listen_recreates_pong_event_per_connection(monkeypatc
     await client._connect_and_listen()
 
     assert client._pong_received is None
+
 
 @pytest.mark.asyncio
 async def test_host_ws_client_skips_duplicate_registration_when_payload_unchanged(

@@ -27,7 +27,7 @@ def test_host_ws_client_switches_to_polling_after_repeated_403(monkeypatch, tmp_
     assert client._should_fallback_to_polling(_Forbidden()) is False
     assert client._should_fallback_to_polling(_Forbidden()) is True
 
-def test_host_ws_client_treats_transport_denial_errors_as_polling_candidates(
+def test_host_ws_client_keeps_websocket_for_ambiguous_transport_errors(
     monkeypatch, tmp_path
 ):
     home_dir = tmp_path / "home"
@@ -46,9 +46,10 @@ def test_host_ws_client_treats_transport_denial_errors_as_polling_candidates(
 
     assert client._should_fallback_to_polling(error) is False
     assert client._should_fallback_to_polling(error) is False
-    assert client._should_fallback_to_polling(error) is True
+    assert client._should_fallback_to_polling(error) is False
+    assert client._ws_forbidden_count == 0
 
-def test_host_ws_client_treats_ws_open_timeout_as_polling_candidate(
+def test_host_ws_client_keeps_websocket_for_open_timeout(
     monkeypatch, tmp_path
 ):
     home_dir = tmp_path / "home"
@@ -67,7 +68,8 @@ def test_host_ws_client_treats_ws_open_timeout_as_polling_candidate(
 
     assert client._should_fallback_to_polling(error) is False
     assert client._should_fallback_to_polling(error) is False
-    assert client._should_fallback_to_polling(error) is True
+    assert client._should_fallback_to_polling(error) is False
+    assert client._ws_forbidden_count == 0
 
 def test_host_ws_client_polling_reserve_backoff_grows_and_caps(monkeypatch, tmp_path):
     home_dir = tmp_path / "home"
