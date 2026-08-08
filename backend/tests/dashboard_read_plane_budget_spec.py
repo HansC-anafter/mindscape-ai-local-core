@@ -112,16 +112,22 @@ def test_saved_views_use_identity_only_and_explicit_columns():
 
 def test_local_auth_workspace_scope_is_id_only_and_thread_offloaded():
     auth = _read("app/dependencies/auth.py")
-    workspace_store = _read("app/services/stores/postgres/workspaces_store.py")
+    access_repository = _read(
+        "app/services/workspace_access_control/repository_reads.py"
+    )
 
-    assert "store.list_workspace_ids(owner_user_id=user_id, limit=200)" in auth
+    assert "WorkspaceAccessControlFacade().list_authorized_workspace_ids(" in auth
+    assert "limit=200" in auth
     assert "await asyncio.to_thread(_get_local_workspace_ids, user_id)" in auth
-    id_method = workspace_store.split("def list_workspace_ids", 1)[1].split(
-        "def list_workspace_summaries", 1
+    id_method = access_repository.split(
+        "def list_authorized_workspace_ids", 1
+    )[1].split(
+        "def read_scope_projection", 1
     )[0]
-    assert "SELECT id" in id_method
+    assert "SELECT workspace.id" in id_method
     assert "SELECT *" not in id_method
-    assert "ORDER BY updated_at DESC, id" in id_method
+    assert "ORDER BY workspace.updated_at DESC, workspace.id" in id_method
+    assert "LIMIT :limit" in id_method
 
 
 def test_dashboard_errors_remain_redacted_and_retryable_for_recovery():

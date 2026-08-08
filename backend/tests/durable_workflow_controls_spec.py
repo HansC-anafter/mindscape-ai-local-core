@@ -327,6 +327,9 @@ def test_disabled_effect_adapter_uses_same_connection_creator(engine, facade) ->
 
 def test_adapters_are_source_only_and_pack_neutral() -> None:
     root = Path(__file__).resolve().parents[1] / "app" / "services"
+    scheduled_task_composition_root = (
+        root / "workflow" / "scheduled_task_pack_api.py"
+    )
     adapter_paths = {
         root / "run_harness" / "durable_workflow_adapter.py",
         root / "playbook" / "durable_checkpoint_adapter.py",
@@ -334,7 +337,10 @@ def test_adapters_are_source_only_and_pack_neutral() -> None:
         root / "workflow" / "durable_state" / "effect_task_adapter.py",
         root / "workflow" / "durable_state" / "durable_control_adapter.py",
     }
-    bodies = "\n".join(path.read_text(encoding="utf-8") for path in adapter_paths)
+    bodies = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in adapter_paths | {scheduled_task_composition_root}
+    )
     for forbidden in ("capabilities.ig", "capabilities.yogacoach", "ig_pack"):
         assert forbidden not in bodies
     adapter_names = {path.stem for path in adapter_paths}
@@ -345,4 +351,4 @@ def test_adapters_are_source_only_and_pack_neutral() -> None:
         body = path.read_text(encoding="utf-8")
         if any(name in body for name in adapter_names):
             live_importers.append(path)
-    assert live_importers == []
+    assert set(live_importers) == {scheduled_task_composition_root}

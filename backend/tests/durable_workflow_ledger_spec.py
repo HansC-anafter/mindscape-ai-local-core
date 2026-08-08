@@ -457,6 +457,11 @@ def test_source_has_no_owned_pool_and_only_declared_composition_callers() -> Non
         / "workspace_capability_admission"
         / "durable_workflow_policy.py",
         root / "app" / "services" / "capability_runtime_activation.py",
+        root
+        / "app"
+        / "services"
+        / "workflow"
+        / "scheduled_task_pack_api.py",
         root / "app" / "runner" / "task_executor_admission.py",
         root / "app" / "runner" / "task_executor_child.py",
     }
@@ -465,6 +470,6 @@ def test_source_has_no_owned_pool_and_only_declared_composition_callers() -> Non
         if durable_root in path.parents:
             continue
         body = path.read_text(encoding="utf-8")
-        if "services.workflow.durable_state" in body:
+        if "workflow.durable_state" in body:
             callers.append(path)
     assert set(callers) == allowed_source_only_adapters
