@@ -409,6 +409,7 @@ class MessageResultFinalizationMixin:
                     or ""
                 ).strip()
                 or None,
+                workspace_id=workspace_id,
             )
             return governance_result
         except Exception:
@@ -422,6 +423,7 @@ class MessageResultFinalizationMixin:
                 status=str(result.get("status") or "completed"),
                 landing_succeeded=False,
                 error="governance_landing_exception",
+                workspace_id=workspace_id,
             )
             return {
                 "success": False,

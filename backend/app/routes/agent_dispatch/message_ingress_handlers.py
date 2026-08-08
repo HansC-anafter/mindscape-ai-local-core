@@ -161,6 +161,7 @@ class MessageIngressHandlersMixin:
 
         response = self._build_resume_sync(
             workspace_id=client.workspace_id,
+            surface_type=client.surface_type,
             recent_execution_ids=recent_execution_ids,
             pending_rest_execution_ids=pending_rest_execution_ids,
             last_completed_at=last_completed_at,
@@ -306,6 +307,8 @@ class MessageIngressHandlersMixin:
             execution_id,
             result=result,
             status=result_status,
+            workspace_id=inflight.workspace_id,
+            surface_type=client.surface_type,
         )
 
         logger.info(
