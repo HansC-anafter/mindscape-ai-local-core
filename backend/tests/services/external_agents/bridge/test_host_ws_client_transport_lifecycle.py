@@ -161,6 +161,55 @@ async def test_heartbeat_loop_closes_ws_when_send_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_heartbeat_loop_keeps_idle_socket_when_application_pong_lags(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv(
+        "MINDSCAPE_RESULT_SPOOL_PATH",
+        str(tmp_path / "heartbeat-result-spool.json"),
+    )
+
+    class _SlowPongWS:
+        def __init__(self):
+            self.closed = False
+            self.sent: list[str] = []
+
+        async def send(self, payload):
+            self.sent.append(payload)
+
+        async def close(self):
+            self.closed = True
+
+    client = HostBridgeWSClient(
+        workspace_id="ws-1",
+        host="localhost:8200",
+        surface="codex_cli",
+        client_id="client-1",
+        task_handler=lambda _: None,
+    )
+    ws = _SlowPongWS()
+    client._ws = ws
+
+    async def _no_delay(_seconds):
+        return None
+
+    async def _timeout_once(awaitable, *, timeout):
+        assert timeout == client.PONG_TIMEOUT
+        awaitable.close()
+        client._ws = None
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(asyncio, "sleep", _no_delay)
+    monkeypatch.setattr(asyncio, "wait_for", _timeout_once)
+
+    await client._heartbeat_loop()
+
+    assert len(ws.sent) == 1
+    assert ws.closed is False
+    assert client._ws is None
+
+
+@pytest.mark.asyncio
 async def test_connect_and_listen_recreates_pong_event_per_connection(monkeypatch):
     stale_event = asyncio.Event()
 
