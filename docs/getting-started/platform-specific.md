@@ -26,6 +26,15 @@ Or run the startup helper with an execution-policy bypass:
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
+For an existing installation, update and restart through the same DPAPI-aware product entrypoint:
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+Use `.\scripts\compose.ps1 restart <service>` for later service-only restarts. Bare `docker compose restart` does not load the protected runtime secret.
+
 Clone the repository into a user-owned path such as:
 
 ```powershell

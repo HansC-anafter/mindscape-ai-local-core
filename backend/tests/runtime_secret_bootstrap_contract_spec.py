@@ -140,6 +140,10 @@ def test_windows_adapter_uses_current_user_dpapi_and_no_plaintext_store():
 
     assert "DataProtectionScope]::CurrentUser" in adapter
     assert "DataProtectionScope]::LocalMachine" not in adapter
+    assert '"System.Security"' in adapter
+    assert '"System.Security.Cryptography.ProtectedData"' in adapter
+    assert "Add-Type -AssemblyName $assemblyName -ErrorAction Stop" in adapter
+    assert adapter.count("Import-MindscapeDpapiAssembly") == 3
     assert "postgres_vector_runtime_password.dpapi" in facade
     assert "WriteAllText($Path, $encoded" in adapter
     assert "WriteAllText($envFile" not in facade
@@ -150,3 +154,18 @@ def test_windows_adapter_uses_current_user_dpapi_and_no_plaintext_store():
     assert "Import-Module $modulePath" in compose_facade
     assert "Initialize-MindscapeRuntimeSecrets" in compose_facade
     assert "& docker compose @ComposeArguments" in compose_facade
+
+
+def test_public_windows_update_guides_use_secret_aware_startup_path():
+    guide_paths = (
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs/getting-started/installation.md",
+        REPO_ROOT / "docs/getting-started/docker.md",
+        REPO_ROOT / "docs/getting-started/platform-specific.md",
+    )
+
+    for guide_path in guide_paths:
+        guide = guide_path.read_text(encoding="utf-8")
+        assert "git pull --ff-only" in guide
+        assert "scripts\\start.ps1" in guide
+        assert "docker compose restart backend" not in guide

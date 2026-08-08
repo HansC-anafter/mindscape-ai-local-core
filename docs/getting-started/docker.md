@@ -35,6 +35,26 @@ Windows PowerShell users can use:
 
 The helper scripts check Docker availability, bootstrap machine-owned runtime secrets, and can start host-side companion processes. On Unix-like hosts, `scripts/compose.sh` is the container-only compatibility facade; on Windows use `scripts\compose.ps1`.
 
+## Update an Existing Installation
+
+Run the update from the existing repository directory. The update remains on the current branch and fails instead of creating an implicit merge commit:
+
+macOS and Linux:
+
+```bash
+git pull --ff-only
+./scripts/start.sh
+```
+
+Windows PowerShell:
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+The startup helpers own host preparation, machine-owned runtime-secret loading, and Compose startup. For a later container-only operation, use `./scripts/compose.sh <arguments>` on macOS/Linux or `.\scripts\compose.ps1 <arguments>` on Windows. Bare `docker compose` bypasses that runtime-secret boundary and is not a supported update or restart path.
+
 ## Startup Modes
 
 The Compose facade starts the default container set while preserving the same runtime-secret bootstrap:

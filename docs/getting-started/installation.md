@@ -22,6 +22,19 @@ Then open:
 
 See [Docker Deployment Guide](./docker.md) for service details, profiles, ports, data paths, and backups.
 
+## Update an Existing Installation
+
+Use the repository's canonical startup helper after pulling a fast-forward update. On Windows PowerShell:
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+This path loads the DPAPI-protected internal runtime secret before Compose evaluates the service configuration. Use `.\scripts\compose.ps1 restart <service>` for a later service-only restart. Do not replace either command with bare `docker compose`, and do not add `POSTGRES_VECTOR_RUNTIME_PASSWORD` to `.env`.
+
+For macOS and Linux update commands, see [Update an Existing Installation](./docker.md#update-an-existing-installation).
+
 ## Environment File
 
 The system can start with provider API keys unset. AI features that require external LLM providers become available after configuration.

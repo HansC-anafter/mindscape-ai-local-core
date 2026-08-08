@@ -29,6 +29,17 @@ cd mindscape-ai-local-core
 
 On Windows PowerShell, run `.\scripts\start.ps1`. These canonical launchers create machine-owned internal runtime secrets automatically; users only configure optional provider keys and other product settings.
 
+### Update an Existing Windows Installation
+
+From the existing repository directory, pull the fast-forward update and run the same canonical startup helper:
+
+```powershell
+git pull --ff-only
+powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+```
+
+The startup helper applies the current Compose configuration and loads the DPAPI-protected runtime secret. For a later service-only restart, use `.\scripts\compose.ps1 restart <service>`. Bare `docker compose restart` bypasses the Windows runtime-secret facade and is not a supported product operation.
+
 The local web console is served by the Compose stack. For setup details and platform notes, use the retained public setup path:
 
 - [Getting Started](docs/getting-started/README.md)
