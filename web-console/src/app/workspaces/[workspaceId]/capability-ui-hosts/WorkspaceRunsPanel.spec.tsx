@@ -7,7 +7,11 @@ import {
   loadCapabilityUIComponent,
   primeCapabilityUIComponentMetadata,
 } from '@/lib/capability-ui-loader';
+import type {
+  CapabilityUiLocalizationBridgeV1,
+} from '@/lib/capability-ui-localization';
 import { sharedGetFetch } from '@/lib/resilient-fetch';
+import { CapabilityHostLocalizationProvider } from './CapabilityHostLocalizationContext';
 import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 import WorkspaceRunsPanel from './WorkspaceRunsPanel';
 
@@ -73,6 +77,16 @@ const IG_RUNS_TOOL = {
     integrity: 'sha256-test',
     runtime: 'mindscape-react-bridge-v1',
   },
+};
+
+const bridge: CapabilityUiLocalizationBridgeV1 = {
+  contract: 'mindscape-capability-ui-localization-bridge-v1',
+  requestedLocale: 'zh-TW',
+  effectiveLocale: 'zh-TW',
+  direction: 'ltr',
+  sourceLocale: 'en',
+  status: 'ready',
+  t: (key) => `translated:${key}`,
 };
 
 describe('WorkspaceRunsPanel', () => {
@@ -192,27 +206,43 @@ describe('WorkspaceRunsPanel', () => {
 
   it('renders the installed capability runs panel without starting fallback polling', async () => {
     vi.mocked(getWorkspaceToolDefinitions).mockResolvedValue([IG_RUNS_TOOL as any]);
-    vi.mocked(loadCapabilityUIComponent).mockResolvedValue(function MockIGRunsWorkspaceToolPanel() {
-      return <div data-testid="ig-runs-panel">IG runs panel</div>;
+    vi.mocked(loadCapabilityUIComponent).mockResolvedValue(function MockIGRunsWorkspaceToolPanel({
+      localization,
+    }: {
+      localization?: CapabilityUiLocalizationBridgeV1;
+    }) {
+      return (
+        <div
+          data-testid="ig-runs-panel"
+          data-effective-locale={localization?.effectiveLocale}
+        >
+          IG runs panel
+        </div>
+      );
     });
 
     render(
-      <WorkspaceRunsPanel
-        workspaceId="ws_test"
-        activeCapabilityCode="ig"
-        runObservationsSummary={{
-          summary: {
-            workspace_id: 'ws_test',
-            source_kind: 'external_runner',
-            external_active_count: 1,
-            counts: {},
-            cards: [{ id: 'fallback_card' }],
-          } as any,
-          isLoading: false,
-          error: null,
-          externalActiveCount: 1,
-        }}
-      />,
+      <CapabilityHostLocalizationProvider
+        capabilityCode="ig"
+        localizationPromise={Promise.resolve(bridge)}
+      >
+        <WorkspaceRunsPanel
+          workspaceId="ws_test"
+          activeCapabilityCode="ig"
+          runObservationsSummary={{
+            summary: {
+              workspace_id: 'ws_test',
+              source_kind: 'external_runner',
+              external_active_count: 1,
+              counts: {},
+              cards: [{ id: 'fallback_card' }],
+            } as any,
+            isLoading: false,
+            error: null,
+            externalActiveCount: 1,
+          }}
+        />
+      </CapabilityHostLocalizationProvider>,
     );
 
     await waitFor(() => {
@@ -220,6 +250,10 @@ describe('WorkspaceRunsPanel', () => {
     });
 
     expect(screen.queryByTestId('workspace-run-observations-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('ig-runs-panel')).toHaveAttribute(
+      'data-effective-locale',
+      'zh-TW',
+    );
     expect(screen.queryByText('2 running · 1 pending')).not.toBeInTheDocument();
     expect(vi.mocked(sharedGetFetch)).not.toHaveBeenCalled();
     expect(vi.mocked(primeCapabilityUIComponentMetadata)).toHaveBeenCalledWith(

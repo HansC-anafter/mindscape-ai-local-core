@@ -8,10 +8,15 @@ import WorkspacePausedRunsPanel from '@/components/workspace/WorkspacePausedRuns
 import WorkspaceRunObservationsPanel from '@/components/workspace/WorkspaceRunObservationsPanel';
 import { useWorkspaceDataOptional } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import type {
+  CapabilityUiLocalizationBridgeV1,
+} from '@/lib/capability-ui-localization';
+import { useT } from '@/lib/i18n';
 import {
   type WorkspaceToolDefinition,
 } from '@/lib/workspace-tools/workspace-tool-registry';
 import type { UseRunObservationsSummaryResult } from '@/lib/workspace-runs/useRunObservationsSummary';
+import { useCapabilityHostLocalizationPromise } from './CapabilityHostLocalizationContext';
 import WorkspaceRunsFallbackPanel from './WorkspaceRunsFallbackPanel';
 import { getWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 
@@ -34,9 +39,20 @@ function WorkspaceRunsViewTabs({
   activeView: WorkspaceRunsView;
   setActiveView: (view: WorkspaceRunsView) => void;
 }) {
+  const t = useT();
   const tabs = [
-    { id: 'active' as const, label: 'Active Runs', icon: Activity },
-    { id: 'paused' as const, label: 'Paused Runs', icon: PauseCircle },
+    {
+      id: 'active' as const,
+      label: t('workspaceToolActiveRuns'),
+      shortLabel: t('workspaceToolActive'),
+      icon: Activity,
+    },
+    {
+      id: 'paused' as const,
+      label: t('workspaceToolPausedRuns'),
+      shortLabel: t('workspaceToolPaused'),
+      icon: PauseCircle,
+    },
   ];
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-gray-200 px-2 py-2 dark:border-gray-800">
@@ -58,7 +74,7 @@ function WorkspaceRunsViewTabs({
             title={tab.label}
           >
             <Icon className="h-3.5 w-3.5" />
-            <span>{tab.label.replace(' Runs', '')}</span>
+            <span>{tab.shortLabel}</span>
           </button>
         );
       })}
@@ -72,9 +88,14 @@ export default function WorkspaceRunsPanel({
   runObservationsSummary,
 }: WorkspaceRunsPanelProps) {
   const apiUrl = getApiBaseUrl();
+  const t = useT();
   const workspaceData = useWorkspaceDataOptional();
+  const localizationPromise =
+    useCapabilityHostLocalizationPromise(activeCapabilityCode);
   const [activeView, setActiveView] = useState<WorkspaceRunsView>('active');
   const [Component, setComponent] = useState<React.ComponentType<any> | null>(null);
+  const [localization, setLocalization] =
+    useState<CapabilityUiLocalizationBridgeV1 | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -85,6 +106,7 @@ export default function WorkspaceRunsPanel({
     let cancelled = false;
     setLoading(true);
     setComponent(null);
+    setLocalization(null);
     if (!activeCapabilityCode) {
       setLoading(false);
       return () => {
@@ -97,6 +119,9 @@ export default function WorkspaceRunsPanel({
         if (!runsPanelTool) {
           return null;
         }
+        if (!localizationPromise) {
+          throw new Error('capability_host_localization_pending');
+        }
         const {
           loadCapabilityUIComponent,
           primeCapabilityUIComponentMetadata,
@@ -105,21 +130,31 @@ export default function WorkspaceRunsPanel({
           runsPanelTool.capability_code,
           [runsPanelTool.panel_component],
         );
-        return loadCapabilityUIComponent(
-          runsPanelTool.capability_code,
-          runsPanelTool.panel_component_code,
-          apiUrl,
-          workspaceId,
-        );
+        return Promise.all([
+          loadCapabilityUIComponent(
+            runsPanelTool.capability_code,
+            runsPanelTool.panel_component_code,
+            apiUrl,
+            workspaceId,
+          ),
+          localizationPromise,
+        ]);
       })
-      .then((LoadedComponent) => {
+      .then((loaded) => {
         if (!cancelled) {
-          setComponent(() => LoadedComponent);
+          setComponent(() => loaded?.[0] || null);
+          setLocalization(loaded?.[1] || null);
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((loadError) => {
         if (!cancelled) {
+          if (
+            loadError instanceof Error
+            && loadError.message === 'capability_host_localization_pending'
+          ) {
+            return;
+          }
           setComponent(null);
           setLoading(false);
         }
@@ -127,11 +162,11 @@ export default function WorkspaceRunsPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeCapabilityCode, apiUrl, workspaceId]);
+  }, [activeCapabilityCode, apiUrl, localizationPromise, workspaceId]);
 
   const activeContent = loading ? (
     <div className="p-2 text-xs text-gray-500 dark:text-gray-400">
-      Loading capability runs...
+      {t('workspaceToolLoadingRuns')}
     </div>
   ) : !Component ? (
     <>
@@ -140,7 +175,12 @@ export default function WorkspaceRunsPanel({
     </>
   ) : (
     <div className="min-h-0 flex-1 overflow-hidden">
-      <Component workspaceId={workspaceId} apiUrl={apiUrl} embedded />
+      <Component
+        workspaceId={workspaceId}
+        apiUrl={apiUrl}
+        embedded
+        localization={localization}
+      />
     </div>
   );
 

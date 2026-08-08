@@ -3,7 +3,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { loadCapabilityUIComponent } from '@/lib/capability-ui-loader';
+import type {
+  CapabilityUiLocalizationBridgeV1,
+} from '@/lib/capability-ui-localization';
 
+import { CapabilityHostLocalizationProvider } from './CapabilityHostLocalizationContext';
 import WorkspaceToolExtensionSlot from './WorkspaceToolExtensionSlot';
 
 vi.mock('@/lib/api-url', () => ({
@@ -17,18 +21,33 @@ vi.mock('@/lib/capability-ui-loader', async () => {
     loadCapabilityUIComponent: vi.fn(async () => function LoadedToolPanel({
       workspaceId,
       apiUrl,
+      localization,
     }: {
       workspaceId: string;
       apiUrl: string;
+      localization?: CapabilityUiLocalizationBridgeV1;
     }) {
       return ReactModule.createElement(
         'div',
-        { 'data-testid': 'loaded-tool-panel' },
+        {
+          'data-testid': 'loaded-tool-panel',
+          'data-effective-locale': localization?.effectiveLocale,
+        },
         `${workspaceId}:${apiUrl}`,
       );
     }),
   };
 });
+
+const bridge: CapabilityUiLocalizationBridgeV1 = {
+  contract: 'mindscape-capability-ui-localization-bridge-v1',
+  requestedLocale: 'zh-TW',
+  effectiveLocale: 'zh-TW',
+  direction: 'ltr',
+  sourceLocale: 'en',
+  status: 'ready',
+  t: (key) => `translated:${key}`,
+};
 
 describe('WorkspaceToolExtensionSlot', () => {
   afterEach(() => {
@@ -59,21 +78,31 @@ describe('WorkspaceToolExtensionSlot', () => {
     }];
 
     const { rerender } = render(
-      <WorkspaceToolExtensionSlot
-        workspaceId="ws_test"
-        activeToolKey={null}
-        tools={tools}
-      />,
+      <CapabilityHostLocalizationProvider
+        capabilityCode="ig"
+        localizationPromise={Promise.resolve(bridge)}
+      >
+        <WorkspaceToolExtensionSlot
+          workspaceId="ws_test"
+          activeToolKey={null}
+          tools={tools}
+        />
+      </CapabilityHostLocalizationProvider>,
     );
 
     expect(loadCapabilityUIComponent).not.toHaveBeenCalled();
 
     rerender(
-      <WorkspaceToolExtensionSlot
-        workspaceId="ws_test"
-        activeToolKey="ig:runs_panel"
-        tools={tools}
-      />,
+      <CapabilityHostLocalizationProvider
+        capabilityCode="ig"
+        localizationPromise={Promise.resolve(bridge)}
+      >
+        <WorkspaceToolExtensionSlot
+          workspaceId="ws_test"
+          activeToolKey="ig:runs_panel"
+          tools={tools}
+        />
+      </CapabilityHostLocalizationProvider>,
     );
 
     await waitFor(() => {
@@ -85,6 +114,10 @@ describe('WorkspaceToolExtensionSlot', () => {
       );
       expect(screen.getByTestId('loaded-tool-panel')).toHaveTextContent(
         'ws_test:http://api.test',
+      );
+      expect(screen.getByTestId('loaded-tool-panel')).toHaveAttribute(
+        'data-effective-locale',
+        'zh-TW',
       );
     });
   });

@@ -12,6 +12,7 @@ import {
 } from '@/components/capabilities/workbench/CapabilityWorkbenchInfoProvider';
 import { PackScopeToolContributionsProvider } from '@/components/capabilities/workbench/usePackScopeToolContributions';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useT } from '@/lib/i18n';
 import { useWorkspaceGroupOptional } from '@/contexts/WorkspaceGroupContext';
 import {
   WORKBENCH_LEFT_TOOL_RAIL_SLOT,
@@ -46,6 +47,7 @@ function WorkspaceWorkbenchInfoToolRegistration({
 }: {
   scopeId: string;
 }) {
+  const t = useT();
   const metadata = useCapabilityWorkbenchInfoMetadata();
   const contributions = React.useMemo<WorkspaceGlobalToolContribution[]>(() => {
     if (!shouldExposeWorkbenchInfoRail(metadata)) {
@@ -56,7 +58,7 @@ function WorkspaceWorkbenchInfoToolRegistration({
       {
         key: `${scopeId}:workbench-info`,
         id: 'workbench_info',
-        label: 'Info',
+        label: t('workspaceToolInfo'),
         icon: <Info aria-hidden="true" className="h-4 w-4" />,
         group: 'workspace',
         order: 5,
@@ -67,7 +69,7 @@ function WorkspaceWorkbenchInfoToolRegistration({
         ),
       },
     ];
-  }, [metadata, scopeId]);
+  }, [metadata, scopeId, t]);
 
   useWorkspaceGlobalToolContributions(`${scopeId}:workbench-info`, contributions);
 

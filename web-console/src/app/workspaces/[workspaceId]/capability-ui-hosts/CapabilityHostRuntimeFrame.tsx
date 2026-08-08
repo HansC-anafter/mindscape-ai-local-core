@@ -17,6 +17,7 @@ import {
   type WorkspaceDataInitialLoadProfile,
 } from '@/contexts/WorkspaceDataContext';
 import { getApiBaseUrl } from '@/lib/api-url';
+import { useT } from '@/lib/i18n';
 import {
   WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS,
   WORKSPACE_RIGHT_REGION_PANEL_WIDTH_CLASS,
@@ -33,11 +34,11 @@ import {
   useWorkspaceMobileHostToolTray,
 } from '../components/WorkspaceMobileHostToolTray';
 import {
-  GROUP_LABELS,
   WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
   WORKSPACE_TOOL_RAIL_COMMAND_ID,
   bindingIdForContribution,
   buildCoreWorkspaceToolContributions,
+  groupLabelFor,
   groupOrder,
   isActiveExecutionStatus,
   resolveVisibleContributions,
@@ -52,10 +53,10 @@ interface CapabilityHostRuntimeFrameProps {
   children: React.ReactNode;
 }
 
-function WorkspaceToolPanelLoadingState({ label }: { label: string }) {
+function WorkspaceToolPanelLoadingState({ message }: { message: string }) {
   return (
     <div className="flex h-full items-center justify-center p-3 text-xs text-gray-500 dark:text-gray-400">
-      Loading {label}...
+      {message}
     </div>
   );
 }
@@ -70,6 +71,7 @@ function CapabilityHostToolRailProvider({
   children: React.ReactNode;
 }) {
   const apiUrl = getApiBaseUrl();
+  const t = useT();
   const workspaceData = useWorkspaceDataOptional();
   const {
     activateScope,
@@ -114,9 +116,10 @@ function CapabilityHostToolRailProvider({
       apiUrl,
       activeCapabilityCode,
       activeExecutionCount,
+      t,
       remoteSurfaceMode,
     })
-  ), [activeCapabilityCode, activeExecutionCount, apiUrl, remoteSurfaceMode, workspaceId]);
+  ), [activeCapabilityCode, activeExecutionCount, apiUrl, remoteSurfaceMode, t, workspaceId]);
 
   const visibleContributions = React.useMemo(
     () => resolveVisibleContributions(coreContributions, registeredScopeContributions),
@@ -221,10 +224,10 @@ function CapabilityHostToolRailProvider({
   useToolRailPanelToggleShortcut({
     bindingId: WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID,
     scope: shortcutScope,
-    label: 'Toggle active workspace tool panel',
+    label: t('workspaceToolTogglePanel'),
     ownerType: 'core',
     ownerId: 'workspace',
-    ownerLabel: 'Workspace',
+    ownerLabel: t('workspaceToolWorkspace'),
     enabled: Boolean(activeContribution?.renderPanel || lastPanelToolKey),
     shortcutPriority: activeContribution?.renderPanel ? 350 : undefined,
     onToggle: toggleActiveWorkspacePanel,
@@ -242,7 +245,7 @@ function CapabilityHostToolRailProvider({
       .sort(([leftGroup], [rightGroup]) => groupOrder(leftGroup) - groupOrder(rightGroup))
       .map(([group, contributions]) => ({
         id: `workspace-global-${group}`,
-        label: GROUP_LABELS[group],
+        label: groupLabelFor(group, t),
         testId: `workspace-global-tool-group-${group}`,
         children: (
           <>
@@ -271,7 +274,7 @@ function CapabilityHostToolRailProvider({
           </>
         ),
       }));
-  }, [activeToolKey, activateContribution, getCommandAriaShortcut, getCommandShortcut, visibleContributions]);
+  }, [activeToolKey, activateContribution, getCommandAriaShortcut, getCommandShortcut, t, visibleContributions]);
 
   const contextValue = React.useMemo(() => ({
     activeToolKey,
@@ -283,7 +286,7 @@ function CapabilityHostToolRailProvider({
 
   const workspaceToolRail = (
     <WorkspaceToolRail
-      ariaLabel="Capability host tools"
+      ariaLabel={t('workspaceToolRailAriaLabel')}
       testId="workspace-global-tool-rail"
       placement={isMobilePlacement ? 'tray' : 'side'}
       groups={groups}
@@ -306,7 +309,7 @@ function CapabilityHostToolRailProvider({
         </div>
         <button
           type="button"
-          aria-label={`Close ${activeContribution.label}`}
+          aria-label={t('workspaceToolClose', { label: activeContribution.label })}
           className="inline-flex h-7 w-7 items-center justify-center rounded text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-900 dark:hover:text-gray-100"
           onClick={() => {
             setActiveToolKey(null);
@@ -316,7 +319,13 @@ function CapabilityHostToolRailProvider({
         </button>
       </div>
       <div className={WORKSPACE_RIGHT_REGION_PANEL_BODY_CLASS}>
-        <React.Suspense fallback={<WorkspaceToolPanelLoadingState label={activeContribution.label} />}>
+        <React.Suspense
+          fallback={(
+            <WorkspaceToolPanelLoadingState
+              message={t('workspaceToolLoadingNamed', { label: activeContribution.label })}
+            />
+          )}
+        >
           {activeContribution.renderPanel()}
         </React.Suspense>
       </div>

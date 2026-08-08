@@ -11,6 +11,9 @@ import type {
   CapabilityInfo,
   UIComponentInfo,
 } from '../capabilities/[capabilityCode]/CapabilityLoadedComponentsView';
+import {
+  CapabilityHostLocalizationProvider,
+} from './CapabilityHostLocalizationContext';
 
 interface CapabilityUiHostClientLoaderProps {
   workspaceId: string;
@@ -273,14 +276,19 @@ export default function CapabilityUiHostClientLoader({
 
   return (
     <React.Suspense fallback={<CapabilityUiLoadingState />}>
-      <WorkspaceSurfaceShell
-        workspaceId={workspaceId}
-        activeCapabilityCode={capabilityCode}
-        surfacePath={surfacePath}
-        remoteSurfaceMode={remoteSurfaceMode}
+      <CapabilityHostLocalizationProvider
+        capabilityCode={capabilityCode}
+        localizationPromise={localizationPromise}
       >
-        {content}
-      </WorkspaceSurfaceShell>
+        <WorkspaceSurfaceShell
+          workspaceId={workspaceId}
+          activeCapabilityCode={capabilityCode}
+          surfacePath={surfacePath}
+          remoteSurfaceMode={remoteSurfaceMode}
+        >
+          {content}
+        </WorkspaceSurfaceShell>
+      </CapabilityHostLocalizationProvider>
     </React.Suspense>
   );
 }

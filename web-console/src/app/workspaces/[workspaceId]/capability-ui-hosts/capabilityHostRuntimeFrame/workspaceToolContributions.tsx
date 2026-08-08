@@ -12,6 +12,7 @@ import {
 import type {
   WorkspaceRightRegionGroup,
 } from '@/lib/workspace-right-region/workspace-right-region-contract';
+import type { Translator } from '@/lib/i18n';
 import { openAppRouteInNewWindow } from '@/lib/navigation/openAppRouteInNewWindow';
 import type { WorkspaceGlobalToolContribution } from '../../components/useWorkspaceGlobalToolRail';
 
@@ -22,15 +23,6 @@ const WorkspacePackToolPanel = React.lazy(() => import('../WorkspacePackToolPane
 
 export const WORKSPACE_ACTIVE_PANEL_TOGGLE_BINDING_ID = 'tool_rail:workspace:active_panel:toggle';
 export const WORKSPACE_TOOL_RAIL_COMMAND_ID = 'workspace.tool_rail.toggle';
-
-export const GROUP_LABELS: Partial<Record<WorkspaceRightRegionGroup, string>> = {
-  execution: 'Runs',
-  workspace: 'Workspace',
-  graph: 'Graph',
-  capability: 'Pack',
-  runtime: 'Runtime',
-  tool_runtime: 'Tool Runtime',
-};
 
 const GROUP_ORDER: Partial<Record<WorkspaceRightRegionGroup, number>> = {
   execution: 10,
@@ -48,6 +40,21 @@ export function isActiveExecutionStatus(status: unknown): boolean {
 
 export function groupOrder(group: WorkspaceRightRegionGroup): number {
   return GROUP_ORDER[group] ?? 100;
+}
+
+export function groupLabelFor(
+  group: WorkspaceRightRegionGroup,
+  t: Translator,
+): string {
+  const labelByGroup: Partial<Record<WorkspaceRightRegionGroup, string>> = {
+    execution: t('workspaceToolRuns'),
+    workspace: t('workspaceToolWorkspace'),
+    graph: t('workspaceToolGraph'),
+    capability: t('workspaceToolPack'),
+    runtime: t('workspaceToolRuntime'),
+    tool_runtime: t('workspaceToolRuntimeTools'),
+  };
+  return labelByGroup[group] || group;
 }
 
 export function sortContributions(
@@ -104,19 +111,21 @@ export function buildCoreWorkspaceToolContributions({
   apiUrl,
   activeCapabilityCode,
   activeExecutionCount,
+  t,
   remoteSurfaceMode = false,
 }: {
   workspaceId: string;
   apiUrl: string;
   activeCapabilityCode: string | null;
   activeExecutionCount: number;
+  t: Translator;
   remoteSurfaceMode?: boolean;
 }): WorkspaceGlobalToolContribution[] {
   const contributions: WorkspaceGlobalToolContribution[] = [
     {
       key: 'core:runs_panel',
       id: 'runs_panel',
-      label: 'Runs',
+      label: t('workspaceToolRuns'),
       icon: <Activity aria-hidden="true" className="h-4 w-4" />,
       group: 'execution',
       order: 10,
@@ -133,7 +142,7 @@ export function buildCoreWorkspaceToolContributions({
     {
       key: 'core:settings',
       id: 'settings',
-      label: 'Settings',
+      label: t('workspaceToolSettings'),
       icon: <SettingsIcon aria-hidden="true" className="h-4 w-4" />,
       group: 'workspace',
       order: 20,
@@ -146,7 +155,7 @@ export function buildCoreWorkspaceToolContributions({
     {
       key: 'core:pack',
       id: 'pack',
-      label: 'Pack',
+      label: t('workspaceToolPack'),
       icon: <Package aria-hidden="true" className="h-4 w-4" />,
       group: 'capability',
       order: 30,
@@ -159,7 +168,7 @@ export function buildCoreWorkspaceToolContributions({
     {
       key: 'core:motion_source',
       id: 'motion_source',
-      label: 'Motion Source',
+      label: t('workspaceToolMotionSource'),
       icon: <Smartphone aria-hidden="true" className="h-4 w-4" />,
       group: 'runtime',
       order: 30,
@@ -172,7 +181,7 @@ export function buildCoreWorkspaceToolContributions({
     {
       key: 'core:graph',
       id: 'graph',
-      label: 'Graph',
+      label: t('workspaceToolGraph'),
       icon: <GitGraph aria-hidden="true" className="h-4 w-4" />,
       group: 'graph',
       order: 40,
