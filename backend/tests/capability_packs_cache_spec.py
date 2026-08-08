@@ -481,3 +481,23 @@ def test_clear_installed_capability_metadata_caches_invalidates_route_state():
     assert cache_state.get_cached_runtime_ui_index("demo_pack") is None
     assert cache_state.get_cached_installed_pack_ids() is None
     assert cache_state.get_cached_pack_meta_by_code("demo_pack") is None
+
+
+def test_installed_metadata_caches_outlive_frontend_timeout_window(monkeypatch):
+    _reset_pack_yaml_cache()
+    now = 100.0
+    monkeypatch.setattr(cache_state.time, "monotonic", lambda: now)
+    cache_state.set_cached_capability_route_payload(
+        "installed-capability",
+        "ig",
+        {"code": "ig", "version": "1.0.211"},
+    )
+    cache_state.set_cached_installed_pack_ids({"ig"})
+
+    now += 31.0
+
+    assert cache_state.get_cached_capability_route_payload(
+        "installed-capability",
+        "ig",
+    ) == {"code": "ig", "version": "1.0.211"}
+    assert cache_state.get_cached_installed_pack_ids() == {"ig"}
