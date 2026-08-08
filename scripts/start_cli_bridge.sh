@@ -369,8 +369,7 @@ if [[ "$ALL_MODE" == "true" ]]; then
     ALL_WS_IDS=$(fetch_active_workspace_ids)
     WS_COUNT=$(echo "$ALL_WS_IDS" | grep -c . || true)
     if [[ "$WS_COUNT" -eq 0 ]]; then
-        log_error "No workspaces found."
-        exit 1
+        log_warn "Workspace list is temporarily unavailable; watcher will stay alive and retry."
     fi
     log_info "Found $WS_COUNT workspace(s)"
 elif [[ -z "$WORKSPACE_ID" ]]; then
