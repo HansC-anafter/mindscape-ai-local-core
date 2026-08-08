@@ -83,6 +83,7 @@ def _stage_runtime_revision_subset(
     revision_files: list[Path],
 ) -> str:
     support_root = source_dir.parent
+    source_revision_files = set(_iter_revision_files(source_dir))
     support_files = sorted(
         path
         for path in support_root.rglob("*")
@@ -95,7 +96,7 @@ def _stage_runtime_revision_subset(
         path
         for path in source_dir.rglob("*")
         if path.is_file()
-        and path not in revision_files
+        and path not in source_revision_files
         and "__pycache__" not in path.parts
         and path.suffix != ".pyc"
     )
