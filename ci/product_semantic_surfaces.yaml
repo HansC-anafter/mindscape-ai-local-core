@@ -157,7 +157,9 @@ surfaces:
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
+      - backend/app/database/config.py
       - backend/app/database/connection_factory.py
+      - backend/app/database/secret_values.py
       - backend/app/database/vector_connection.py
       - backend/app/database/query_failure_evidence.py
       - backend/app/database/query_failure_evidence_core/**
@@ -207,6 +209,16 @@ surfaces:
       - scripts/maintenance/runtime_pressure_gate_core/**
       - scripts/maintenance/check_runtime_read_path_budget.py
       - scripts/ci/compose_topology/**
+      - scripts/ci/runtime_secret_disposable_integration.sh
+      - scripts/start.ps1
+      - scripts/start.sh
+      - scripts/compose.ps1
+      - scripts/compose.sh
+      - scripts/runtime_secrets/**
+      - backend/app/app_bootstrap/lifecycle_startup.py
+      - backend/app/runtime_secret_command_facade.py
+      - backend/app/routes/core/admin_reload.py
+      - backend/app/routes/core/system_settings/system_control.py
       - docker-compose.yml
       - docker/compose/postgres-recovery-drill.yml
       - docker/compose/postgres-signal-observer.yml
@@ -219,8 +231,12 @@ surfaces:
       - backend/tests/database_application_identity_spec.py
       - backend/tests/database_vector_connection_spec.py
       - backend/tests/database_query_failure_evidence_spec.py
+      - backend/tests/database/runtime_secret_values_spec.py
+      - backend/tests/runtime_secret_*_spec.py
       - backend/tests/compose_topology_matrix_spec.py
       - backend/tests/postgres_runtime_readiness_config_spec.py
+      - backend/tests/postgres_vector_runtime_reconcile_spec.py
+      - backend/tests/test_system_control_restart_api.py
       - backend/tests/postgres_task_control_budget_spec.py
       - backend/tests/task_projection_reconciliation_spec.py
       - backend/tests/runner_resource_projection_refresh_spec.py

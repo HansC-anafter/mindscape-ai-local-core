@@ -347,6 +347,12 @@ if ($isInSystemPath) {
     exit 1
 }
 
+# Bootstrap machine-owned secrets through the dedicated module seam.
+$runtimeSecretsModule = Join-Path $ScriptDir "runtime_secrets\RuntimeSecrets.psm1"
+Import-Module $runtimeSecretsModule -Force
+$runtimeSecretState = Initialize-MindscapeRuntimeSecrets -ProjectRoot $ProjectRoot
+Write-Host "Runtime secrets ready ($($runtimeSecretState.Backend), $($runtimeSecretState.State))." -ForegroundColor Green
+
 # Change to project root
 Set-Location $ProjectRoot
 
@@ -382,8 +388,8 @@ if ($LASTEXITCODE -eq 0 -and $existingContainers) {
         } else {
             Write-Host ""
             Write-Host "WARNING: Keeping existing containers. If you encounter errors, run:" -ForegroundColor Yellow
-            Write-Host "  docker compose down" -ForegroundColor Cyan
-            Write-Host "  docker compose up -d" -ForegroundColor Cyan
+            Write-Host "  .\scripts\compose.ps1 down" -ForegroundColor Cyan
+            Write-Host "  .\scripts\compose.ps1 up -d" -ForegroundColor Cyan
             Write-Host ""
         }
     }
@@ -570,7 +576,7 @@ if ($exitCode -ne 0) {
             Write-Host "  4. Health check timeout (service may need more time to start)" -ForegroundColor White
             Write-Host ""
             Write-Host "To check backend logs in detail:" -ForegroundColor Cyan
-            Write-Host "  docker compose logs backend" -ForegroundColor White
+            Write-Host "  .\scripts\compose.ps1 logs backend" -ForegroundColor White
             Write-Host ""
             Write-Host "To check if port 8200 is in use:" -ForegroundColor Cyan
             Write-Host "  netstat -ano | findstr :8200" -ForegroundColor White
@@ -587,13 +593,13 @@ if ($exitCode -ne 0) {
 
     Write-Host ""
     Write-Host "For more detailed logs, run:" -ForegroundColor Yellow
-    Write-Host "  docker compose logs [service-name]" -ForegroundColor Cyan
+    Write-Host "  .\scripts\compose.ps1 logs [service-name]" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "To check service status:" -ForegroundColor Yellow
-    Write-Host "  docker compose ps" -ForegroundColor Cyan
+    Write-Host "  .\scripts\compose.ps1 ps" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Tip: If backend is unhealthy, it may need more time to start." -ForegroundColor Cyan
-    Write-Host "   Wait 1-2 minutes and check again: docker compose ps" -ForegroundColor White
+    Write-Host "   Wait 1-2 minutes and check again: .\scripts\compose.ps1 ps" -ForegroundColor White
     Write-Host ""
     exit 1
 }
@@ -645,8 +651,8 @@ if ($unhealthyServices.Count -gt 0) {
     }
     Write-Host ""
     Write-Host "Services may still be starting. Check again with:" -ForegroundColor Yellow
-    Write-Host "  docker compose ps" -ForegroundColor Cyan
-    Write-Host "  docker compose logs [service-name]" -ForegroundColor Cyan
+    Write-Host "  .\scripts\compose.ps1 ps" -ForegroundColor Cyan
+    Write-Host "  .\scripts\compose.ps1 logs [service-name]" -ForegroundColor Cyan
     Write-Host ""
 }
 
@@ -659,9 +665,9 @@ Write-Host "  Backend API: http://localhost:8200" -ForegroundColor White
 Write-Host "  API Docs: http://localhost:8200/docs" -ForegroundColor White
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Cyan
-Write-Host "  docker compose ps          # Check service status" -ForegroundColor White
-Write-Host "  docker compose logs -f     # View logs" -ForegroundColor White
-Write-Host "  docker compose stop        # Stop services" -ForegroundColor White
-Write-Host "  docker compose down        # Stop and remove containers" -ForegroundColor White
+Write-Host "  .\scripts\compose.ps1 ps          # Check service status" -ForegroundColor White
+Write-Host "  .\scripts\compose.ps1 logs -f     # View logs" -ForegroundColor White
+Write-Host "  .\scripts\compose.ps1 stop        # Stop services" -ForegroundColor White
+Write-Host "  .\scripts\compose.ps1 down        # Stop and remove containers" -ForegroundColor White
 Write-Host ""
 

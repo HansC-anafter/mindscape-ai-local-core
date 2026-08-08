@@ -24,8 +24,10 @@ The public documentation focuses on stable Local Core contracts: local runtime b
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
-docker compose up -d
+./scripts/start.sh
 ```
+
+On Windows PowerShell, run `.\scripts\start.ps1`. These canonical launchers create machine-owned internal runtime secrets automatically; users only configure optional provider keys and other product settings.
 
 The local web console is served by the Compose stack. For setup details and platform notes, use the retained public setup path:
 

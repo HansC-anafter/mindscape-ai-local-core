@@ -276,7 +276,7 @@ async def trigger_reload(validate_first: bool = True, force: bool = False):
         raise HTTPException(
             status_code=403,
             detail="Reload trigger is only available in development mode. "
-            "In production, use 'docker compose restart' or k8s rollout.",
+            "In production, use the platform Compose facade or a Kubernetes rollout.",
         )
     if is_execution_plane() and not force:
         raise HTTPException(

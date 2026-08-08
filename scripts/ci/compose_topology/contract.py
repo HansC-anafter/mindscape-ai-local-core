@@ -22,6 +22,7 @@ PROFILE_SETS: dict[str, tuple[str, ...]] = {
 
 DEFAULT_SERVICES = {
     "postgres",
+    "postgres-vector-runtime-bootstrap",
     "pgbouncer",
     "redis",
     "backend",
@@ -29,7 +30,6 @@ DEFAULT_SERVICES = {
     "runner-browser-maintenance",
     "runner-default-local-browser",
     "runner-vision-mlx-dev",
-    "xtts-service",
     "media-proxy",
     "runner-browser-extra",
     "runner-vision",
@@ -57,11 +57,11 @@ RUNNER_EXPECTATIONS = {
     "runner-default-local-browser": {
         "profile": "default_local_browser",
         "accepted_partitions": "default_local_browser",
-        "max_inflight": "1",
+        "max_inflight": "2",
         "runner_id": "default-browser-bounded-one",
-        "mem_limit": "6442450944",
-        "cpus": 4.0,
-        "pids_limit": 256,
+        "mem_limit": None,
+        "cpus": None,
+        "pids_limit": None,
         "pool_size": "4",
         "max_overflow": "1",
     },
@@ -97,7 +97,7 @@ RUNNER_EXPECTATIONS = {
     },
     "runner-vision-mlx-dev": {
         "profile": "vision_mlx_dev",
-        "accepted_partitions": "vision_mlx_dev",
+        "accepted_partitions": "vision_mlx_dev,knowledge_indexing",
         "max_inflight": "1",
         "pool_size": "2",
         "max_overflow": "0",

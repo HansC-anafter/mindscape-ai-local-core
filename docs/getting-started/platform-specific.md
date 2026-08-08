@@ -52,10 +52,10 @@ cd mindscape-ai-local-core
 ./scripts/start.sh
 ```
 
-The startup helper can configure host-side companion processes and then start Compose services. For container-only startup, use:
+The startup helper can configure host-side companion processes and then start Compose services. For container-only startup with the same runtime-secret bootstrap, use:
 
 ```bash
-docker compose up -d
+./scripts/compose.sh up -d
 ```
 
 On macOS, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
@@ -76,10 +76,10 @@ cd mindscape-ai-local-core
 
 If your user is not in the Docker group, either use `sudo docker` for manual commands or configure Docker permissions according to your distribution's guidance.
 
-The startup helper can configure systemd services for host-side companion processes when supported. For container-only startup, use:
+The startup helper can configure systemd services for host-side companion processes when supported. For container-only startup with the same runtime-secret bootstrap, use:
 
 ```bash
-docker compose up -d
+./scripts/compose.sh up -d
 ```
 
 On Linux, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
@@ -95,7 +95,7 @@ If your Docker engine lacks `host.docker.internal`, set `OLLAMA_HOST` and `OLLAM
 After startup, verify:
 
 ```bash
-docker compose ps
+./scripts/compose.sh ps
 ```
 
 Then open:

@@ -18,7 +18,7 @@ Clone the repository and start the default Docker services:
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
-docker compose up -d
+./scripts/start.sh
 ```
 
 Linux and macOS users can also use the startup helper:
@@ -33,14 +33,14 @@ Windows PowerShell users can use:
 .\scripts\start.ps1
 ```
 
-The helper scripts check Docker availability and can start host-side companion processes. The direct `docker compose up -d` path is the simplest container-only startup path.
+The helper scripts check Docker availability, bootstrap machine-owned runtime secrets, and can start host-side companion processes. On Unix-like hosts, `scripts/compose.sh` is the container-only compatibility facade; on Windows use `scripts\compose.ps1`.
 
 ## Startup Modes
 
-Direct Compose starts the default container set only:
+The Compose facade starts the default container set while preserving the same runtime-secret bootstrap:
 
 ```bash
-docker compose up -d
+./scripts/compose.sh up -d
 ```
 
 The macOS and Linux helper checks Docker, prepares repository-defined host companions when available, and then starts Compose with the `control-plane` profile:
@@ -55,7 +55,7 @@ The Windows helper checks Docker, prepares Windows host companions when availabl
 .\scripts\start.ps1
 ```
 
-Use direct Compose for a container-only smoke test. Use a helper when you need the local host companions that are part of this repository's startup flow. Keep capability internals, generated runtime bundles, ignored paths, local data, and credentials in their runtime or owner-managed locations.
+Use the Compose facade for a container-only smoke test. Use the startup helper when you need the local host companions that are part of this repository's startup flow. Bare `docker compose` does not decrypt the Windows DPAPI store and is not a supported product startup path.
 
 ## Access
 
@@ -88,8 +88,8 @@ Optional profiles:
 Examples:
 
 ```bash
-docker compose --profile control-plane up -d
-docker compose --profile ocr up -d
+./scripts/compose.sh --profile control-plane up -d
+./scripts/compose.sh --profile ocr up -d
 ```
 
 ## Configuration
@@ -104,7 +104,7 @@ Useful settings include:
 
 - `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` for external LLM providers
 - `LOCAL_AUTH_SECRET` for local auth signing
-- `POSTGRES_CORE_DB`, `POSTGRES_VECTOR_DB`, `POSTGRES_CORE_USER`, `POSTGRES_VECTOR_USER`, `POSTGRES_CORE_PASSWORD`, and `POSTGRES_VECTOR_PASSWORD` when overriding database defaults
+- `POSTGRES_CORE_DB`, `POSTGRES_VECTOR_DB`, and host directory settings when overriding public database defaults. The vector runtime password is machine-managed and must not be added to `.env`.
 - `OLLAMA_HOST` and `OLLAMA_BASE_URL` when connecting to a host Ollama service
 - `LOCAL_CORE_DATA_HOST_DIR`, `LOCAL_CORE_POSTGRES_HOST_DIR`, and `LOCAL_CORE_LOGS_HOST_DIR` when moving data and logs outside the repository tree
 - `TZ` for container timezone
@@ -121,15 +121,17 @@ Keep `.env`, local data, logs, backups, credentials, and generated runtime artif
 ## Common Commands
 
 ```bash
-docker compose ps
-docker compose logs -f
-docker compose logs -f backend
-docker compose up -d --build
-docker compose stop
-docker compose down
+./scripts/compose.sh ps
+./scripts/compose.sh logs -f
+./scripts/compose.sh logs -f backend
+./scripts/compose.sh up -d --build
+./scripts/compose.sh stop
+./scripts/compose.sh down
 ```
 
-Use `docker compose down -v` only when you intentionally want to remove Compose-managed volumes. Host-mounted data under `./data` and configured host directories are separate and should be backed up before destructive maintenance.
+Use `.\scripts\compose.ps1` with the same arguments on Windows PowerShell.
+
+Use `./scripts/compose.sh down -v` (or `scripts\compose.ps1 down -v` on Windows) only when you intentionally want to remove Compose-managed volumes. Host-mounted data under `./data` and configured host directories are separate and should be backed up before destructive maintenance.
 
 ## Data and Backups
 

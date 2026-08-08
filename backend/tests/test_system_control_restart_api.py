@@ -182,7 +182,10 @@ def test_restart_specific_runner_pool_offline_falls_back_to_manual(monkeypatch):
     assert data["success"] is False
     assert data["method"] == "manual"
     assert data["targets"] == ["runner-browser"]
-    assert data["instruction"] == "docker compose restart runner-browser"
+    assert data["instruction"] == (
+        "./scripts/compose.sh restart runner-browser (macOS/Linux) or "
+        ".\\scripts\\compose.ps1 restart runner-browser (Windows)"
+    )
 
 
 def test_restart_legacy_runner_default_alias_canonicalizes(monkeypatch):

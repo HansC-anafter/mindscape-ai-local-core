@@ -50,7 +50,9 @@ def _check_dependency_updates() -> None:
                 logger.warning(
                     "This means your Docker image is outdated and missing new dependencies."
                 )
-                logger.warning("PLEASE RUN: docker compose up --build")
+                logger.warning(
+                    "PLEASE RUN THE PLATFORM COMPOSE FACADE WITH: up -d --build"
+                )
                 logger.warning("!" * 80 + "\n")
         else:
             logger.debug(

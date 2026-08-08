@@ -9,8 +9,10 @@ Use Docker Compose for normal setup. Use local backend or web console processes 
 ```bash
 git clone https://github.com/HansC-anafter/mindscape-ai-local-core.git
 cd mindscape-ai-local-core
-docker compose up -d
+./scripts/start.sh
 ```
+
+On Windows PowerShell, use `.\scripts\start.ps1`. The launchers automatically bootstrap internal database secrets; do not add `POSTGRES_VECTOR_RUNTIME_PASSWORD` to `.env`.
 
 Then open:
 
@@ -39,7 +41,7 @@ LOCAL_AUTH_SECRET=dev-secret-key-change-in-production
 TZ=UTC
 ```
 
-Database defaults are provided by Docker Compose. Override database values only when you know you need custom names, users, passwords, or host directories.
+Database defaults and the internal vector runtime credential are managed by the startup path. Override public database names or host directories only when required; do not manage the internal vector credential in `.env`.
 
 ## Advanced Local Process Mode
 

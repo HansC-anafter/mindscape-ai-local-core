@@ -72,22 +72,15 @@ def _runner(
     return service
 
 
-def _bounded_default_browser_runner() -> dict[str, object]:
+def _default_browser_runner() -> dict[str, object]:
     service = _runner(
         env={
             **_runner_env(
                 profile="default_local_browser",
                 accepted_partitions="default_local_browser",
-                max_inflight="1",
+                max_inflight="2",
             ),
             "LOCAL_CORE_RUNNER_ID": "default-browser-bounded-one",
-        }
-    )
-    service.update(
-        {
-            "mem_limit": "6442450944",
-            "cpus": 4.0,
-            "pids_limit": 256,
         }
     )
     return service
@@ -99,8 +92,18 @@ def _service_templates() -> dict[str, dict[str, object]]:
             "ports": [{"target": 5432, "published": "5433"}],
             "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U mindscape"]},
         },
-        "pgbouncer": {
+        "postgres-vector-runtime-bootstrap": {
+            "restart": "no",
             "depends_on": _depends("postgres"),
+        },
+        "pgbouncer": {
+            "depends_on": {
+                **_depends("postgres"),
+                "postgres-vector-runtime-bootstrap": {
+                    "condition": "service_completed_successfully",
+                    "required": True,
+                },
+            },
             "healthcheck": {"test": ["CMD-SHELL", "pg_isready -h localhost -p 6432"]},
             "volumes": [{"target": "/etc/pgbouncer/pgbouncer.ini", "read_only": True}],
         },
@@ -145,7 +148,7 @@ def _service_templates() -> dict[str, dict[str, object]]:
             "depends_on": _depends("postgres"),
             "healthcheck": {"test": ["CMD-SHELL", "pg_isready -U mindscape"]},
         },
-        "runner-default-local-browser": _bounded_default_browser_runner(),
+        "runner-default-local-browser": _default_browser_runner(),
         "runner-browser": _runner(
             env=_runner_env(
                 profile="browser_local",
@@ -181,7 +184,7 @@ def _service_templates() -> dict[str, dict[str, object]]:
         "runner-vision-mlx-dev": _runner(
             env=_runner_env(
                 profile="vision_mlx_dev",
-                accepted_partitions="vision_mlx_dev",
+                accepted_partitions="vision_mlx_dev,knowledge_indexing",
                 max_inflight="1",
                 pool_size="2",
                 max_overflow="0",
@@ -200,7 +203,6 @@ def _service_templates() -> dict[str, dict[str, object]]:
             "healthcheck": _health("http://localhost:8001/health"),
         },
         "media-proxy": {},
-        "xtts-service": {},
         "whisper-service": {},
     }
 
@@ -321,6 +323,7 @@ def test_compose_topology_validator_rejects_default_browser_resource_drift() -> 
     models = _models()
     runner = models["all-profiles"]["services"]["runner-default-local-browser"]
     runner["environment"]["LOCAL_CORE_RUNNER_ID"] = "default-browser-steady-five"
+    runner["environment"]["LOCAL_CORE_RUNNER_MAX_INFLIGHT"] = "1"
     runner["mem_limit"] = "25769803776"
     runner["cpus"] = 8.0
     runner["pids_limit"] = 1024
@@ -328,9 +331,10 @@ def test_compose_topology_validator_rejects_default_browser_resource_drift() -> 
     failures = _validate(models)
 
     assert any("LOCAL_CORE_RUNNER_ID='default-browser-bounded-one'" in failure for failure in failures)
-    assert any("mem_limit='6442450944'" in failure for failure in failures)
-    assert any("cpus=4.0" in failure for failure in failures)
-    assert any("pids_limit=256" in failure for failure in failures)
+    assert any("LOCAL_CORE_RUNNER_MAX_INFLIGHT='2'" in failure for failure in failures)
+    assert any("mem_limit=None" in failure for failure in failures)
+    assert any("cpus=None" in failure for failure in failures)
+    assert any("pids_limit=None" in failure for failure in failures)
 
 
 def test_compose_topology_validator_rejects_maintenance_role_drift() -> None:

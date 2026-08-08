@@ -80,7 +80,7 @@ def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
     assert "postgres-replica:" in compose
     assert "LOCAL_CORE_DB_POOL_HOST:-pgbouncer" in compose
     assert "DATABASE_URL_CORE_READONLY" in compose
-    assert "DATABASE_URL_VECTOR_READONLY" in compose
+    assert "POSTGRES_VECTOR_READONLY_DB" in compose
     assert "mindscape_core_readonly" in compose
     assert "mindscape_vectors_readonly" in compose
     assert "--appendonly" in compose
@@ -88,30 +88,20 @@ def test_postgres_completion_runtime_defines_pooling_replica_and_redis_aof():
     assert "LOCAL_CORE_REDIS_HOST_DIR" in compose
 
 
-def test_vector_session_urls_use_the_runtime_role_source_of_truth():
+def test_vector_connections_use_the_runtime_secret_file_source_of_truth():
     repo_root = _repo_root()
     if repo_root is None:
         pytest.skip("Repository root files are not mounted in this container")
 
     compose = (repo_root / "docker-compose.yml").read_text(encoding="utf-8")
-    runtime_session = (
-        "DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-"
-        "mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?"
-        "POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/"
-        "${POSTGRES_VECTOR_DB:-mindscape_vectors}"
-    )
-
-    assert runtime_session in compose
-    assert (
-        "DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_USER:-mindscape}"
-        not in compose
-    )
-    assert (
-        "DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-"
-        "mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?"
-        "POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/"
-        "${POSTGRES_VECTOR_DB:-mindscape_vectors}"
-    ) in compose
+    assert "POSTGRES_VECTOR_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password" in compose
+    assert "POSTGRES_VECTOR_SESSION_HOST=postgres" in compose
+    assert "POSTGRES_VECTOR_READONLY_DB=mindscape_vectors_readonly" in compose
+    assert "DATABASE_URL_VECTOR=postgresql://" not in compose
+    assert "DATABASE_URL_VECTOR_SESSION=postgresql://" not in compose
+    assert "${POSTGRES_VECTOR_RUNTIME_PASSWORD" not in compose
+    assert "environment: POSTGRES_VECTOR_RUNTIME_PASSWORD" in compose
+    assert "postgres-vector-runtime-bootstrap:" in compose
 
     pgbouncer_ini = (repo_root / "docker/pgbouncer/pgbouncer.ini").read_text(
         encoding="utf-8"
@@ -125,6 +115,7 @@ def test_vector_session_urls_use_the_runtime_role_source_of_truth():
         "dbname=mindscape_vectors user=mindscape_vector_runtime "
         "pool_size=5 min_pool_size=0"
     ) in pgbouncer_ini
+
 
 
 def test_runtime_images_include_reclaim_client_package():

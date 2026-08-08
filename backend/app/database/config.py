@@ -5,6 +5,11 @@ import os
 from typing import Optional, Dict
 from urllib.parse import urlparse, unquote
 
+from .secret_values import (
+    get_role_password,
+    quote_postgres_url_component,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -12,8 +17,14 @@ ROLE_CORE = "core"
 ROLE_VECTOR = "vector"
 
 
-def _get_role_env(role: str, key: str) -> Optional[str]:
+def _get_role_env(role: str, key: str, variant: str | None = None) -> Optional[str]:
     role_key = role.upper()
+    if variant:
+        variant_value = os.getenv(f"POSTGRES_{role_key}_{variant}_{key}")
+        if variant_value:
+            return variant_value
+    if key == "PASSWORD":
+        return get_role_password(role)
     return os.getenv(f"POSTGRES_{role_key}_{key}") or os.getenv(f"POSTGRES_{key}")
 
 
@@ -46,15 +57,26 @@ def _get_default_db(role: str) -> str:
     return "mindscape_vectors" if role == ROLE_VECTOR else "mindscape_core"
 
 
-def _build_role_url(role: str) -> Optional[str]:
-    host = _get_role_env(role, "HOST")
+def _build_role_url(role: str, variant: str | None = None) -> Optional[str]:
+    if variant:
+        role_key = role.upper()
+        host = os.getenv(f"POSTGRES_{role_key}_{variant}_HOST")
+    else:
+        host = _get_role_env(role, "HOST")
     if not host:
         return None
-    port = _get_role_env(role, "PORT") or "5432"
-    db = _get_role_env(role, "DB") or _get_default_db(role)
-    user = _get_role_env(role, "USER") or "mindscape"
-    password = _get_role_env(role, "PASSWORD") or "mindscape_password"
-    return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    port = _get_role_env(role, "PORT", variant) or "5432"
+    db = _get_role_env(role, "DB", variant) or _get_default_db(role)
+    user = _get_role_env(role, "USER", variant) or "mindscape"
+    password = _get_role_env(role, "PASSWORD", variant)
+    if password is None:
+        if role == ROLE_VECTOR:
+            return None
+        password = "mindscape_password"
+    quoted_user = quote_postgres_url_component(user)
+    quoted_password = quote_postgres_url_component(password)
+    quoted_db = quote_postgres_url_component(db)
+    return f"postgresql://{quoted_user}:{quoted_password}@{host}:{port}/{quoted_db}"
 
 
 _resolved_url_cache: dict[str, str | None] = {}
@@ -78,7 +100,7 @@ def _resolve_postgres_url(role: str) -> str | None:
         _resolved_url_cache[role] = url
         return url
 
-    legacy_url = _get_legacy_url()
+    legacy_url = _get_legacy_url() if role == ROLE_CORE else None
     if legacy_url:
         logger.warning(f"Falling back to DATABASE_URL for PostgreSQL {role} connection")
         _resolved_url_cache[role] = legacy_url
@@ -129,6 +151,12 @@ def _resolve_postgres_readonly_url(role: str) -> str | None:
         _resolved_readonly_url_cache[role] = url
         return url
 
+    url = _build_role_url(role, "READONLY")
+    if url:
+        logger.info(f"Using PostgreSQL {role} read-only URL from role-specific parts")
+        _resolved_readonly_url_cache[role] = url
+        return url
+
     _resolved_readonly_url_cache[role] = None
     return None
 
@@ -176,6 +204,12 @@ def _resolve_postgres_session_url(role: str) -> str | None:
     url = _get_role_session_url(role)
     if url:
         logger.info(f"Using PostgreSQL {role} session URL from env")
+        _resolved_session_url_cache[role] = url
+        return url
+
+    url = _build_role_url(role, "SESSION")
+    if url:
+        logger.info(f"Using PostgreSQL {role} session URL from role-specific parts")
         _resolved_session_url_cache[role] = url
         return url
 
@@ -242,7 +276,9 @@ def _get_postgres_config(role: str) -> Dict[str, Optional[str]]:
     port = _get_role_env(role, "PORT") or "5432"
     db = _get_role_env(role, "DB") or _get_default_db(role)
     user = _get_role_env(role, "USER") or "mindscape"
-    password = _get_role_env(role, "PASSWORD") or "mindscape_password"
+    password = _get_role_env(role, "PASSWORD")
+    if password is None and role == ROLE_CORE:
+        password = "mindscape_password"
     return {
         "host": host,
         "port": int(port),

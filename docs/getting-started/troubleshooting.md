@@ -54,7 +54,7 @@ docker ps -a --filter "name=mindscape-ai-local-core"
 Remove the old project containers after confirming they are no longer needed:
 
 ```bash
-docker compose down
+./scripts/compose.sh down
 ```
 
 If a stale container remains:
@@ -70,8 +70,8 @@ Back up local data before destructive maintenance.
 Check service status and logs:
 
 ```bash
-docker compose ps
-docker compose logs --tail=100 backend
+./scripts/compose.sh ps
+./scripts/compose.sh logs --tail=100 backend
 ```
 
 The backend healthcheck uses:
@@ -89,7 +89,7 @@ In the Docker stack, the frontend uses the backend service internally and expose
 Check:
 
 ```bash
-docker compose logs --tail=100 frontend
+./scripts/compose.sh logs --tail=100 frontend
 curl http://localhost:8200/healthz
 ```
 
@@ -97,10 +97,10 @@ If running the frontend manually, ensure its environment points to the correct b
 
 ## Startup Helper Differs From Direct Compose
 
-Direct Compose starts the container-only stack:
+The Compose facade starts the container-only stack after loading the machine-owned runtime secret:
 
 ```bash
-docker compose up -d
+./scripts/compose.sh up -d
 ```
 
 The macOS and Linux helper performs host-side setup first and then starts Compose with the `control-plane` profile:
@@ -124,8 +124,8 @@ The default host PostgreSQL port is `5433`, mapped to container port `5432`.
 Check:
 
 ```bash
-docker compose ps postgres
-docker compose logs --tail=100 postgres
+./scripts/compose.sh ps postgres
+./scripts/compose.sh logs --tail=100 postgres
 ```
 
 The default data mount is:
@@ -149,8 +149,10 @@ cp .env.example .env
 Then restart services:
 
 ```bash
-docker compose up -d
+./scripts/compose.sh up -d
 ```
+
+On Windows PowerShell, replace `./scripts/compose.sh` with `.\scripts\compose.ps1`. Do not repair internal database credential errors by adding `POSTGRES_VECTOR_RUNTIME_PASSWORD` to `.env`; rerun the canonical startup or Compose facade so the DPAPI-backed secret is loaded.
 
 ## Windows System Directory Error
 

@@ -14,6 +14,9 @@ from pathlib import Path
 import logging
 
 from app.services.restart_webhook import get_restart_webhook_service
+from app.runtime_secret_command_facade import (
+    build_compose_restart_instruction,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,7 +42,7 @@ class RestartRequest(BaseModel):
 
 
 def _build_manual_instruction(targets: list[str]) -> str:
-    return f"docker compose restart {' '.join(targets)}"
+    return build_compose_restart_instruction(targets)
 
 
 def _expand_service_targets(service: str) -> list[str]:

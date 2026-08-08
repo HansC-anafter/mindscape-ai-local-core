@@ -35,11 +35,10 @@ class ConnectionFactory:
         if role == "vector":
             if self.vector_url:
                 return self.vector_url
-            if self.core_url:
-                logger.warning(
-                    "Vector DB URL not configured, falling back to core PostgreSQL URL"
-                )
-                return self.core_url
+            raise RuntimeError(
+                "PostgreSQL vector URL not configured. "
+                "Set DATABASE_URL_VECTOR or POSTGRES_VECTOR_* environment variables."
+            )
         if self.core_url:
             return self.core_url
         raise RuntimeError(

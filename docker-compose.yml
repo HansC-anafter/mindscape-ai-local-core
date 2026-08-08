@@ -2,6 +2,9 @@ include:
   - path: docker/compose/postgres-recovery-drill.yml
   - path: docker/compose/postgres-signal-observer.yml
 
+x-vector-runtime-secrets: &vector-runtime-secrets
+  - postgres_vector_runtime_password
+
 x-runner-environment: &runner-environment
   ENVIRONMENT: development
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -11,12 +14,9 @@ x-runner-environment: &runner-environment
   REDIS_DB: ${REDIS_DB:-0}
   REDIS_PASSWORD: ${REDIS_PASSWORD:-}
   DATABASE_URL_CORE: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-  DATABASE_URL_VECTOR: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
   DATABASE_URL_CORE_READONLY: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-  DATABASE_URL_VECTOR_READONLY: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
   DATABASE_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
   DATABASE_URL_CORE_SESSION: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-  DATABASE_URL_VECTOR_SESSION: postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
   PGBOUNCER_ADMIN_URL: postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
   MINDSCAPE_RUNTIME_RESOURCE_PROBE: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE:-/app/scripts/managed_site_release_resource_probe.py}
   MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256: ${MINDSCAPE_RUNTIME_RESOURCE_PROBE_SHA256:-}
@@ -40,7 +40,13 @@ x-runner-environment: &runner-environment
   POSTGRES_VECTOR_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_VECTOR_DB: ${POSTGRES_VECTOR_DB:-mindscape_vectors}
   POSTGRES_VECTOR_USER: ${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
-  POSTGRES_VECTOR_PASSWORD: ${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
+  POSTGRES_VECTOR_PASSWORD_FILE: /run/secrets/postgres_vector_runtime_password
+  POSTGRES_VECTOR_SESSION_HOST: postgres
+  POSTGRES_VECTOR_SESSION_PORT: 5432
+  POSTGRES_VECTOR_SESSION_DB: ${POSTGRES_VECTOR_DB:-mindscape_vectors}
+  POSTGRES_VECTOR_READONLY_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+  POSTGRES_VECTOR_READONLY_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
+  POSTGRES_VECTOR_READONLY_DB: mindscape_vectors_readonly
   POSTGRES_HOST: ${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
   POSTGRES_PORT: ${LOCAL_CORE_DB_POOL_PORT:-6432}
   POSTGRES_DB: ${POSTGRES_CORE_DB:-mindscape_core}
@@ -120,6 +126,7 @@ x-runner-common: &runner-common
   restart: unless-stopped
   logging: *default-logging
   environment: *runner-environment
+  secrets: *vector-runtime-secrets
   volumes: *runner-volumes
   # Browser capacity is governed by measured node-budget reservations and
   # startup-spacing gates. A shared 6 GiB cgroup cap can kill a third browser
@@ -154,6 +161,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
+    secrets: *vector-runtime-secrets
     ports:
       - "127.0.0.1:8200:8200"
       - "127.0.0.1:3002-3020:3002-3020"
@@ -199,9 +207,7 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Database
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
       - PGBOUNCER_ADMIN_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
@@ -216,7 +222,13 @@ services:
       - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
-      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
+      - POSTGRES_VECTOR_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password
+      - POSTGRES_VECTOR_SESSION_HOST=postgres
+      - POSTGRES_VECTOR_SESSION_PORT=5432
+      - POSTGRES_VECTOR_SESSION_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_READONLY_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_VECTOR_READONLY_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
+      - POSTGRES_VECTOR_READONLY_DB=mindscape_vectors_readonly
       # Legacy fallback (core)
       - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
@@ -339,6 +351,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     command: ["sh", "-c", "exec sh /app/backend/scripts/run_backend_server.sh"]
+    secrets: *vector-runtime-secrets
     ports:
       - "127.0.0.1:8220:8210"
     environment:
@@ -367,12 +380,9 @@ services:
       - REDIS_DB=${REDIS_DB:-0}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - DATABASE_URL_CORE=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - DATABASE_URL_CORE_READONLY=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_core_readonly
-      - DATABASE_URL_VECTOR_READONLY=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/mindscape_vectors_readonly
       - DATABASE_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/${POSTGRES_CORE_DB:-mindscape_core}
       - DATABASE_URL_CORE_SESSION=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@postgres:5432/${POSTGRES_CORE_DB:-mindscape_core}
-      - DATABASE_URL_VECTOR_SESSION=postgresql://${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}:${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}@postgres:5432/${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - PGBOUNCER_ADMIN_URL=postgresql://${POSTGRES_CORE_USER:-mindscape}:${POSTGRES_CORE_PASSWORD:-mindscape_password}@${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}:${LOCAL_CORE_DB_POOL_PORT:-6432}/pgbouncer
       - POSTGRES_CORE_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_CORE_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
@@ -383,7 +393,13 @@ services:
       - POSTGRES_VECTOR_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
-      - POSTGRES_VECTOR_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
+      - POSTGRES_VECTOR_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password
+      - POSTGRES_VECTOR_SESSION_HOST=postgres
+      - POSTGRES_VECTOR_SESSION_PORT=5432
+      - POSTGRES_VECTOR_SESSION_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_READONLY_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
+      - POSTGRES_VECTOR_READONLY_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
+      - POSTGRES_VECTOR_READONLY_DB=mindscape_vectors_readonly
       - POSTGRES_HOST=${LOCAL_CORE_DB_POOL_HOST:-pgbouncer}
       - POSTGRES_PORT=${LOCAL_CORE_DB_POOL_PORT:-6432}
       - POSTGRES_DB=${POSTGRES_CORE_DB:-mindscape_core}
@@ -714,9 +730,10 @@ services:
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_RUNTIME_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
-      - POSTGRES_VECTOR_RUNTIME_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
+      - POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TZ=${TZ:-UTC}
+    secrets: *vector-runtime-secrets
     volumes:
       - "${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}:/var/lib/postgresql/data"
       - "${LOCAL_CORE_POSTGRES_WAL_ARCHIVE_HOST_DIR:-./backups/local-runtime/postgres-wal-archive}:/var/lib/postgresql/wal_archive"
@@ -730,6 +747,35 @@ services:
       retries: 10
       start_period: 60s
 
+  postgres-vector-runtime-bootstrap:
+    image: ${LOCAL_CORE_POSTGRES_IMAGE:-mindscape-ai-local-core-postgres:pg16}
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+      args:
+        POSTGRES_BASE_IMAGE: ${LOCAL_CORE_POSTGRES_BASE_IMAGE:-pgvector/pgvector:pg16}
+        PG_MAJOR: ${LOCAL_CORE_POSTGRES_MAJOR:-16}
+    container_name: mindscape-ai-local-core-postgres-vector-runtime-bootstrap
+    restart: "no"
+    logging: *default-logging
+    command: ["sh", "/opt/mindscape/reconcile-vector-runtime-role.sh"]
+    environment:
+      - POSTGRES_CORE_USER=${POSTGRES_CORE_USER:-mindscape}
+      - POSTGRES_CORE_PASSWORD=${POSTGRES_CORE_PASSWORD:-mindscape_password}
+      - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
+      - POSTGRES_VECTOR_RUNTIME_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
+      - POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password
+      - POSTGRES_DIRECT_HOST=postgres
+      - TZ=${TZ:-UTC}
+    secrets: *vector-runtime-secrets
+    volumes:
+      - ./docker/postgres/reconcile-vector-runtime-role.sh:/opt/mindscape/reconcile-vector-runtime-role.sh:ro
+    networks:
+      - mindscape-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   pgbouncer:
     image: ${LOCAL_CORE_POSTGRES_IMAGE:-mindscape-ai-local-core-postgres:pg16}
     build:
@@ -742,13 +788,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     user: postgres
-    command:
-      - sh
-      - -lc
-      - |
-        printf '"%s" "%s"\n' "$$POSTGRES_CORE_USER" "$$POSTGRES_CORE_PASSWORD" > /tmp/pgbouncer-userlist.txt
-        printf '"%s" "%s"\n' "$$POSTGRES_VECTOR_RUNTIME_USER" "$$POSTGRES_VECTOR_RUNTIME_PASSWORD" >> /tmp/pgbouncer-userlist.txt
-        exec /usr/sbin/pgbouncer /etc/pgbouncer/pgbouncer.ini
+    command: ["sh", "/opt/mindscape/start-pgbouncer.sh"]
     ports:
       - "127.0.0.1:6432:6432"
     environment:
@@ -757,15 +797,19 @@ services:
       - POSTGRES_CORE_DB=${POSTGRES_CORE_DB:-mindscape_core}
       - POSTGRES_VECTOR_DB=${POSTGRES_VECTOR_DB:-mindscape_vectors}
       - POSTGRES_VECTOR_RUNTIME_USER=${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}
-      - POSTGRES_VECTOR_RUNTIME_PASSWORD=${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD is required}
+      - POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE=/run/secrets/postgres_vector_runtime_password
       - TZ=${TZ:-UTC}
+    secrets: *vector-runtime-secrets
     volumes:
       - ./docker/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./docker/pgbouncer/start.sh:/opt/mindscape/start-pgbouncer.sh:ro
     networks:
       - mindscape-network
     depends_on:
       postgres:
         condition: service_healthy
+      postgres-vector-runtime-bootstrap:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -p 6432 -U ${POSTGRES_CORE_USER:-mindscape} -d ${POSTGRES_CORE_DB:-mindscape_core}"]
       interval: 10s
@@ -981,6 +1025,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+secrets:
+  postgres_vector_runtime_password:
+    environment: POSTGRES_VECTOR_RUNTIME_PASSWORD
 
 volumes:
   xtts_model_cache:

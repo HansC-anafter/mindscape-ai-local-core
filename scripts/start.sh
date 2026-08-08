@@ -67,6 +67,11 @@ fi
 # Change to project root
 cd "$PROJECT_ROOT"
 
+# Bootstrap machine-owned secrets before the first Compose operation.
+source "$SCRIPT_DIR/runtime_secrets/runtime_secrets.sh"
+mindscape_initialize_runtime_secrets "$PROJECT_ROOT"
+echo "Runtime secrets ready ($MINDSCAPE_RUNTIME_SECRET_BACKEND, $MINDSCAPE_RUNTIME_SECRET_STATE)."
+
 # Check for existing containers with same names and offer to clean them up
 echo "Checking for existing containers..."
 EXISTING_CONTAINERS=$(docker ps -a --filter "name=mindscape-ai-local-core" --format "{{.Names}}" 2>/dev/null)
@@ -97,8 +102,8 @@ if [ -n "$EXISTING_CONTAINERS" ]; then
     else
         echo ""
         echo "WARNING: Keeping existing containers. If you encounter errors, run:"
-        echo "  docker compose down"
-        echo "  docker compose up -d"
+        echo "  ./scripts/compose.sh down"
+        echo "  ./scripts/compose.sh up -d"
         echo ""
     fi
 fi
@@ -234,10 +239,10 @@ if [ $? -ne 0 ]; then
 
     echo ""
     echo "For more detailed logs, run:"
-    echo "  docker compose logs [service-name]"
+    echo "  ./scripts/compose.sh logs [service-name]"
     echo ""
     echo "To check service status:"
-    echo "  docker compose ps"
+    echo "  ./scripts/compose.sh ps"
     echo ""
     exit 1
 fi
@@ -260,8 +265,8 @@ if [ -n "$UNHEALTHY_SERVICES" ]; then
     done
     echo ""
     echo "Services may still be starting. Check again with:"
-    echo "  docker compose ps"
-    echo "  docker compose logs [service-name]"
+    echo "  ./scripts/compose.sh ps"
+    echo "  ./scripts/compose.sh logs [service-name]"
     echo ""
 fi
 
@@ -274,8 +279,8 @@ echo "  Backend API: http://localhost:8200"
 echo "  API Docs: http://localhost:8200/docs"
 echo ""
 echo "Useful commands:"
-echo "  docker compose ps          # Check service status"
-echo "  docker compose logs -f     # View logs"
-echo "  docker compose stop        # Stop services"
-echo "  docker compose down        # Stop and remove containers"
+echo "  ./scripts/compose.sh ps          # Check service status"
+echo "  ./scripts/compose.sh logs -f     # View logs"
+echo "  ./scripts/compose.sh stop        # Stop services"
+echo "  ./scripts/compose.sh down        # Stop and remove containers"
 echo ""

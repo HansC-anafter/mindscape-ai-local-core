@@ -235,9 +235,27 @@ def validate_data_plane(model: Mapping[str, Any], pgbouncer_config: PgBouncerCon
         _failure("postgres: healthcheck must use pg_isready", failures)
     if not _has_port(postgres, target=5432, published="5433"):
         _failure("postgres: must publish host 5433 to target 5432", failures)
+    vector_bootstrap = _service(model, "postgres-vector-runtime-bootstrap")
+    if _depends_condition(vector_bootstrap, "postgres") != "service_healthy":
+        _failure(
+            "postgres-vector-runtime-bootstrap: postgres dependency must be service_healthy",
+            failures,
+        )
+    if str(vector_bootstrap.get("restart") or "").lower() != "no":
+        _failure("postgres-vector-runtime-bootstrap: restart must be no", failures)
+    if vector_bootstrap.get("ports"):
+        _failure("postgres-vector-runtime-bootstrap: must not publish ports", failures)
     pgbouncer = _service(model, "pgbouncer")
     if _depends_condition(pgbouncer, "postgres") != "service_healthy":
         _failure("pgbouncer: postgres dependency must be service_healthy", failures)
+    if (
+        _depends_condition(pgbouncer, "postgres-vector-runtime-bootstrap")
+        != "service_completed_successfully"
+    ):
+        _failure(
+            "pgbouncer: vector runtime bootstrap dependency must complete successfully",
+            failures,
+        )
     if "6432" not in _healthcheck_text(pgbouncer):
         _failure("pgbouncer: healthcheck must probe port 6432", failures)
     if not _has_readonly_volume(pgbouncer, "/etc/pgbouncer/pgbouncer.ini"):
