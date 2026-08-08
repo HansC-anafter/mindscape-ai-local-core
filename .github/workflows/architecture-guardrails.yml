@@ -213,4 +213,5 @@ jobs:
             tests/ci/product_semantic_helper_parity_spec.py \
             tests/ci/validate_product_semantics_guard_spec.py \
             tests/ci/product_semantic_contract_source_spec.py \
-            tests/ci/pr_template_modular_entry_section_spec.py -q
+            tests/ci/pr_template_modular_entry_section_spec.py \
+            tests/ci/local_core_push_verification_contract_spec.py -q

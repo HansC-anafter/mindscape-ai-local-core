@@ -40,15 +40,20 @@ is_whitelisted() {
 
 # --- Inspect commits being pushed ---
 zero="0000000000000000000000000000000000000000"
+verification_base=""
+verification_head=""
 
 while read local_ref local_sha remote_ref remote_sha; do
     [ "$local_sha" = "$zero" ] && continue
 
     if [ "$remote_sha" = "$zero" ]; then
         range="$local_sha --not --remotes=origin"
+        verification_base="$(git merge-base origin/master "$local_sha" 2>/dev/null || git rev-parse "$local_sha^")"
     else
         range="$remote_sha..$local_sha"
+        verification_base="$remote_sha"
     fi
+    verification_head="$local_sha"
 
     # Only check added/modified files - deletions of protected files are allowed
     files=$(git diff --diff-filter=d --name-only $range 2>/dev/null)
@@ -83,5 +88,33 @@ while read local_ref local_sha remote_ref remote_sha; do
         exit 1
     fi
 done
+
+# --- core_llm compatibility boundary guard ---
+BOUNDARY_SCRIPT="$REPO_ROOT/scripts/ci/validate_core_llm_boundary.py"
+if [ -f "$BOUNDARY_SCRIPT" ]; then
+    if ! python3 "$BOUNDARY_SCRIPT"; then
+        echo ""
+        echo "============================================================"
+        echo "  PUSH REJECTED: core_llm compatibility boundary violation"
+        echo "============================================================"
+        echo ""
+        echo "  The manifest-backed core_llm capability path is shim-only."
+        echo "  Edit backend/app/system_capabilities/core_llm/ instead."
+        echo ""
+        echo "  Script: scripts/ci/validate_core_llm_boundary.py"
+        echo "============================================================"
+        echo ""
+        exit 1
+    fi
+fi
+
+# --- canonical Local Core push verification ---
+VERIFICATION_SCRIPT="$REPO_ROOT/scripts/ci/verify_local_core_push.sh"
+if [ -n "$verification_base" ] && [ -n "$verification_head" ] \
+    && [ -x "$VERIFICATION_SCRIPT" ]; then
+    "$VERIFICATION_SCRIPT" \
+        --base-sha "$verification_base" \
+        --head-sha "$verification_head"
+fi
 
 exit 0
