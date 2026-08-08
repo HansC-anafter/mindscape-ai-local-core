@@ -22,18 +22,34 @@ class PostgresSavedViewsStore(PostgresStoreBase):
     def list_by_user(self, user_id: str) -> List[Dict[str, Any]]:
         """List all Saved Views for a user."""
         query = text(
-            "SELECT * FROM saved_views WHERE user_id = :user_id "
-            "ORDER BY created_at DESC"
+            """
+            SELECT
+                id, name, scope, view, tab, filters,
+                sort_by, sort_order, is_default, created_at, updated_at
+            FROM saved_views
+            WHERE user_id = :user_id
+            ORDER BY created_at DESC, id DESC
+            """
         )
         with self.get_connection() as conn:
+            self._set_statement_timeout(conn)
             result = conn.execute(query, {"user_id": user_id})
             rows = result.fetchall()
             return [self._row_to_dict(row) for row in rows]
 
     def get(self, view_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """Get a single Saved View."""
-        query = text("SELECT * FROM saved_views WHERE id = :id AND user_id = :user_id")
+        query = text(
+            """
+            SELECT
+                id, name, scope, view, tab, filters,
+                sort_by, sort_order, is_default, created_at, updated_at
+            FROM saved_views
+            WHERE id = :id AND user_id = :user_id
+            """
+        )
         with self.get_connection() as conn:
+            self._set_statement_timeout(conn)
             result = conn.execute(query, {"id": view_id, "user_id": user_id})
             row = result.fetchone()
             return self._row_to_dict(row) if row else None
@@ -55,6 +71,7 @@ class PostgresSavedViewsStore(PostgresStoreBase):
         """
         )
         with self.transaction() as conn:
+            self._set_statement_timeout(conn)
             conn.execute(
                 query,
                 {
@@ -79,8 +96,13 @@ class PostgresSavedViewsStore(PostgresStoreBase):
         """Delete Saved View."""
         query = text("DELETE FROM saved_views WHERE id = :id AND user_id = :user_id")
         with self.transaction() as conn:
+            self._set_statement_timeout(conn)
             result = conn.execute(query, {"id": view_id, "user_id": user_id})
             return result.rowcount > 0
+
+    @staticmethod
+    def _set_statement_timeout(conn) -> None:
+        conn.execute(text("SET LOCAL statement_timeout = '10000ms'"))
 
     def _row_to_dict(self, row) -> Dict[str, Any]:
         """Convert database row to dictionary."""

@@ -235,6 +235,32 @@ class PostgresWorkspacesStore(PostgresStoreBase):
             rows = result.fetchall()
         return [self._row_to_workspace(row) for row in rows]
 
+    def list_workspace_ids(
+        self,
+        owner_user_id: str,
+        limit: int = 200,
+    ) -> List[str]:
+        """List only authorized workspace IDs for request-scope projection."""
+        normalized_limit = max(1, min(200, int(limit or 200)))
+        with self.get_connection() as conn:
+            conn.execute(text("SET LOCAL statement_timeout = '10000ms'"))
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM workspaces
+                    WHERE owner_user_id = :owner_user_id
+                    ORDER BY updated_at DESC, id
+                    LIMIT :limit
+                    """
+                ),
+                {
+                    "owner_user_id": owner_user_id,
+                    "limit": normalized_limit,
+                },
+            ).fetchall()
+        return [str(row.id) for row in rows]
+
     def list_workspace_summaries(
         self,
         owner_user_id: str,

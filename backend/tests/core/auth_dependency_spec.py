@@ -90,6 +90,23 @@ def test_current_user_keeps_the_existing_workspace_projection(monkeypatch):
     assert context.workspace_ids == ["local-user-workspace"]
 
 
+def test_local_workspace_projection_reads_ids_only(monkeypatch):
+    calls = []
+
+    class _Store:
+        def list_workspace_ids(self, *, owner_user_id, limit):
+            calls.append((owner_user_id, limit))
+            return ["ws-newest", "ws-older"]
+
+    monkeypatch.setattr(mindscape_store, "MindscapeStore", _Store)
+
+    assert auth._get_local_workspace_ids("local-user") == [
+        "ws-newest",
+        "ws-older",
+    ]
+    assert calls == [("local-user", 200)]
+
+
 def test_current_operator_cloud_mode_fails_closed_before_token_network(
     monkeypatch,
 ):

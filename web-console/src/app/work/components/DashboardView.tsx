@@ -26,9 +26,18 @@ export function DashboardView() {
         view: 'my_work',
     });
 
-    const { data: inboxData, loading: inboxLoading, error: inboxError } = useDashboardInbox(scopedQuery);
-    const { data: casesData, loading: casesLoading, error: casesError } = useDashboardCases(scopedQuery);
-    const { data: assignmentsData, loading: assignmentsLoading, error: assignmentsError } = useDashboardAssignments(scopedQuery);
+    const { data: inboxData, loading: inboxLoading, error: inboxError } = useDashboardInbox(
+        scopedQuery,
+        { enabled: activeTab === 'inbox' },
+    );
+    const { data: casesData, loading: casesLoading, error: casesError } = useDashboardCases(
+        scopedQuery,
+        { enabled: activeTab === 'cases' },
+    );
+    const { data: assignmentsData, loading: assignmentsLoading, error: assignmentsError } = useDashboardAssignments(
+        scopedQuery,
+        { enabled: activeTab === 'assignments' },
+    );
 
     return (
         <div className="flex h-full bg-white dark:bg-gray-900">

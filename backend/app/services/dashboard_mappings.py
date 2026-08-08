@@ -30,6 +30,7 @@ TASK_TO_ASSIGNMENT_STATUS: Dict[str, str] = {
     "succeeded": "completed",
     "failed": "failed",
     "cancelled_by_user": "cancelled",
+    "cancelled": "cancelled",
     "expired": "cancelled",
 }
 
@@ -116,23 +117,26 @@ def map_execution_to_case(
 
 
 def map_task_to_assignment(
-    task: Any, workspace_id: str, workspace_name: str, owner_user_id: str
+    task: Dict[str, Any],
+    workspace_id: str,
+    workspace_name: str,
+    owner_user_id: str,
 ) -> Dict[str, Any]:
     """
     Task -> AssignmentCardDTO complete field mapping
 
     Explicitly defines source for each field
     """
-    exec_context = task.execution_context or {}
-    status = task.status.value if hasattr(task.status, "value") else str(task.status)
+    source_status = str(task.get("status") or "pending")
+    status = "cancelled_by_user" if source_status == "cancelled" else source_status
 
     return {
         # Required fields
-        "id": task.id,
+        "id": task.get("id", ""),
         "status": TASK_TO_ASSIGNMENT_STATUS.get(status, "pending"),
         # Case association
-        "case_id": task.execution_id,
-        "case_title": exec_context.get("playbook_code", ""),
+        "case_id": task.get("execution_id"),
+        "case_title": task.get("case_title", ""),
         "case_group_id": None,
         "case_group_name": None,
         # Workspace association
@@ -141,8 +145,8 @@ def map_task_to_assignment(
         "target_workspace_id": workspace_id,
         "target_workspace_name": workspace_name,
         # Title/description
-        "title": task.task_type,
-        "description": task.params.get("description", "") if task.params else "",
+        "title": task.get("task_type", ""),
+        "description": task.get("description", ""),
         # Review status (not supported in Local-Core)
         "review_status": None,
         # Priority/due date (not supported in Local-Core)
@@ -166,9 +170,9 @@ def map_task_to_assignment(
         "max_hops": 1,
         "routing_reason": None,
         # Timestamps
-        "created_at": task.created_at,
-        "claimed_at": task.started_at,
-        "completed_at": task.completed_at,
+        "created_at": task.get("created_at"),
+        "claimed_at": task.get("started_at"),
+        "completed_at": task.get("completed_at"),
     }
 
 

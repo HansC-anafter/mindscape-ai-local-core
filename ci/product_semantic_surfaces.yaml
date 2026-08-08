@@ -316,11 +316,18 @@ surfaces:
       - DB read-path repair preserves runner capacity, queue shard visibility, PgBouncer service quality, and active task state.
       - Core schema and index changes use Alembic with concurrent large-table indexes, preflight, rollback, and original-path verification.
     path_globs:
+      - backend/app/dependencies/auth.py
       - backend/app/routes/core/dashboard.py
       - backend/app/services/dashboard_aggregator.py
-      - backend/app/services/stores/postgres/dashboard_task_read_store.py
+      - backend/app/services/dashboard_mappings.py
+      - backend/app/services/mindscape_store_workspace_project_methods.py
+      - backend/app/services/stores/postgres/dashboard_read_queries.py
+      - backend/app/services/stores/postgres/dashboard_read_store.py
+      - backend/app/services/stores/postgres/saved_views_store.py
+      - backend/app/services/stores/postgres/workspaces_store.py
       - backend/app/services/queue_position_cache.py
       - backend/app/services/task_projection_builder.py
+      - backend/app/services/task_projection_reconciliation.py
       - backend/app/routes/core/playbook_execution_core/read_routes.py
       - backend/app/routes/core/workspace/tasks_core/streaming.py
       - backend/features/workspace/executions_core/progress_snapshot.py
@@ -328,8 +335,12 @@ surfaces:
       - backend/alembic_migrations/postgres/versions/*runtime*read*
       - backend/alembic_migrations/postgres/versions/*task*projection*
       - backend/tests/*queue_position_cache*
-      - backend/tests/dashboard_task_read_budget_spec.py
+      - backend/tests/core/auth_dependency_spec.py
+      - backend/tests/dashboard_read_plane_budget_spec.py
       - backend/tests/postgres_task_projection*
+      - web-console/src/app/work/components/DashboardView.tsx
+      - web-console/src/app/work/components/DashboardView.seams.spec.ts
+      - web-console/src/app/work/hooks/useDashboard.ts
       - web-console/src/hooks/useExecutionPolling.spec.tsx
 
   - id: psc.local-core.capability-install-control-plane.v1

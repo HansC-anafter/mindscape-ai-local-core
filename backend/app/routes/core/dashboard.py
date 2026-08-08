@@ -24,7 +24,7 @@ from ...models.dashboard import (
     SavedViewDTO,
     SavedViewCreate,
 )
-from ...dependencies.auth import get_current_user, AuthContext
+from ...dependencies.auth import get_current_identity, get_current_user, AuthContext
 from ...utils.scope import parse_scope, validate_scope
 from ...services.dashboard_aggregator import DashboardAggregator
 from ...services.stores.postgres.saved_views_store import PostgresSavedViewsStore
@@ -299,7 +299,7 @@ async def list_workspace_cards(
 @router.get("/saved-views", response_model=List[SavedViewDTO])
 async def list_saved_views(
     request: Request,
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext = Depends(get_current_identity),
 ):
     """Get saved view list"""
     try:
@@ -314,7 +314,7 @@ async def list_saved_views(
 async def create_saved_view(
     request: Request,
     view_data: SavedViewCreate = Body(...),
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext = Depends(get_current_identity),
 ):
     """Create saved view"""
     try:
@@ -329,7 +329,7 @@ async def create_saved_view(
 async def delete_saved_view(
     request: Request,
     view_id: str,
-    auth: AuthContext = Depends(get_current_user),
+    auth: AuthContext = Depends(get_current_identity),
 ):
     """Delete saved view"""
     try:
