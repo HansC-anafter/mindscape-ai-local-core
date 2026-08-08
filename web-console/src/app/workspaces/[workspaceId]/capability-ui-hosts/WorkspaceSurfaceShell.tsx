@@ -31,7 +31,6 @@ import {
 import CapabilityHostRuntimeFrame from './CapabilityHostRuntimeFrame';
 import { useWorkspaceToolDefinitions } from './useWorkspaceToolDefinitions';
 import { shouldExposeWorkbenchInfoRail } from './workbenchInfoRailPolicy';
-import { useT } from '@/lib/i18n';
 
 const WorkspaceToolExtensionSlot = React.lazy(() => import('./WorkspaceToolExtensionSlot'));
 
