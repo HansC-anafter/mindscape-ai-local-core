@@ -16,6 +16,9 @@ from backend.app.services.capability_api_loader import (
     get_capability_api_activation_policy,
     refresh_seeded_capability_descriptors,
 )
+from backend.app.services.capability_runtime_activation import (
+    activate_declared_outcome_adapter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +31,42 @@ def _activation_tasks(request: Request) -> dict[str, asyncio.Task]:
         tasks = {}
         setattr(request.app.state, _ACTIVATION_TASKS_STATE_KEY, tasks)
     return tasks
+
+
+def _activate_capability_runtime_contracts(
+    *,
+    app,
+    capability_code: str,
+    activation_service: PackActivationService,
+) -> None:
+    activate_capability_api_code(
+        app=app,
+        capability_code=capability_code,
+        activation_mode="request_activate",
+        activation_service=activation_service,
+    )
+    try:
+        readback = activate_declared_outcome_adapter(
+            capability_code=capability_code,
+        )
+        app.state.durable_outcome_adapter_request_restore_receipt = {
+            "state": "restored",
+            "capability_code": capability_code,
+            "outcome_adapter": readback,
+        }
+    except Exception as exc:
+        logger.error(
+            "Request activation preserved capability routes but failed "
+            "outcome adapter restore: capability=%s error=%s",
+            capability_code,
+            type(exc).__name__,
+            exc_info=True,
+        )
+        app.state.durable_outcome_adapter_request_restore_receipt = {
+            "state": "failed",
+            "capability_code": capability_code,
+            "error_code": type(exc).__name__,
+        }
 
 
 async def _activate_capability_once(
@@ -44,10 +83,9 @@ async def _activate_capability_once(
     if task is None or task.done():
         task = asyncio.create_task(
             asyncio.to_thread(
-                activate_capability_api_code,
+                _activate_capability_runtime_contracts,
                 app=request.app,
                 capability_code=capability_code,
-                activation_mode="request_activate",
                 activation_service=activation_service,
             )
         )

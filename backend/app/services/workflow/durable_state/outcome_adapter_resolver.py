@@ -77,6 +77,8 @@ def materialize_outcome_adapter_snapshot(
         raise ValueError("outcome descriptor capability identity mismatch")
     if descriptor["adapter_contract_version"] != export_version:
         raise ValueError("outcome descriptor export version mismatch")
+    if descriptor["authorized_lane"] != "runner:existing":
+        raise ValueError("outcome descriptor authorized lane mismatch")
     if descriptor["manifest_sha256"] != installed_manifest_sha256:
         raise ValueError("outcome descriptor manifest hash mismatch")
     if descriptor["installed_artifact_sha256"] != installed_artifact_sha256:
@@ -112,9 +114,27 @@ def materialize_outcome_adapter_snapshot(
         capability_dir=capability_dir,
         runtime_active=runtime_active,
     )
+    return attach_outcome_adapter_snapshot(capability_entry, snapshot)
+
+
+def attach_outcome_adapter_snapshot(
+    capability_entry: dict[str, Any],
+    snapshot: OutcomeAdapterSnapshot,
+) -> OutcomeAdapterSnapshot:
+    """Attach exactly one immutable snapshot for an exact signed identity."""
+
     index = capability_entry.setdefault(SNAPSHOT_INDEX_KEY, {})
-    key = (CONTRACT_EXPORT_ID, export_version, descriptor["descriptor_sha256"])
-    index[key] = (*index.get(key, ()), snapshot)
+    key = (
+        CONTRACT_EXPORT_ID,
+        snapshot.export_version,
+        snapshot.descriptor["descriptor_sha256"],
+    )
+    matches = tuple(index.get(key, ()))
+    if matches:
+        if len(matches) == 1 and matches[0] == snapshot:
+            return matches[0]
+        raise ValueError("outcome adapter snapshot identity conflict")
+    index[key] = (snapshot,)
     return snapshot
 
 

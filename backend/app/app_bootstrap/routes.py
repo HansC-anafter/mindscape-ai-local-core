@@ -79,6 +79,10 @@ from backend.app.app_bootstrap.workspace_access_control_routes import (
 from backend.app.app_bootstrap.deployment_control_routes import (
     register_deployment_control_routes,
 )
+from backend.app.app_bootstrap.durable_workflow_routes import (
+    register_runtime_durable_workflow_routes,
+    restore_runtime_outcome_adapters,
+)
 from app.services.pack_activation_service import PackActivationService
 
 logger = logging.getLogger(__name__)
@@ -105,6 +109,11 @@ def register_core_routes(app: FastAPI) -> None:
     register_host_runtime_binding_routes(app)
     register_workspace_access_control_routes(app)
     register_deployment_control_routes(app)
+    if not register_runtime_durable_workflow_routes(app):
+        logger.warning(
+            "Durable workflow review routes are not registered: "
+            "core database engine unavailable"
+        )
     app.include_router(playbook.router, tags=["playbook"])
     app.include_router(playbook_execution.router, tags=["playbook"])
     try:
@@ -470,6 +479,7 @@ def register_all_routes(app: FastAPI) -> None:
     register_core_routes(app)
     register_core_primitives(app)
     initialize_feature_packs(app)
+    restore_runtime_outcome_adapters(app)
 
     # Manually register mindscape routes (if not loaded via pack registry)
     try:

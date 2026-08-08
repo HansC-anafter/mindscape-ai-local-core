@@ -237,6 +237,19 @@ def test_child_payload_consumes_snapshot_and_exact_capability(
     assert payload["capability_code"] == "pack"
 
 
+@pytest.mark.asyncio
+async def test_outcome_task_cannot_bypass_admission_without_workspace():
+    task = _task(task_type="product_outcome_evaluation")
+    task.workspace_id = None
+    with pytest.raises(ValueError, match="outcome_task_workspace_required"):
+        await prepare_runner_child_admission(
+            task,
+            {},
+            {"inputs": {}},
+            profile_id="profile-one",
+        )
+
+
 def _internal_projection_fixture():
     task_id = "ktask_" + "1" * 64
     intake_id = "ksi_" + "2" * 32

@@ -267,7 +267,11 @@ class CapabilityInstallJobService:
                             (pipeline_payload.get("activation") or {}).get(
                                 "manifest_hash"
                             )
+                            or (pipeline_payload.get("activation_candidate") or {}).get(
+                                "manifest_hash"
+                            )
                         ),
+                        "artifact_sha256": pipeline_payload.get("artifact_sha256"),
                         "reason": "install_job_completed",
                     },
                 )

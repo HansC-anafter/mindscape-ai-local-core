@@ -1,4 +1,4 @@
-"""App-state dependencies for source-only durable review routes."""
+"""App-state dependencies for bounded durable review routes."""
 
 from fastapi import HTTPException, Request
 

@@ -12,6 +12,7 @@ from app.services.workflow.durable_state.outcome_adapter_port import (
 from app.services.workflow.durable_state.outcome_adapter_resolver import (
     CONTRACT_EXPORT_ID,
     PORT_ID,
+    SNAPSHOT_INDEX_KEY,
     OutcomeAdapterResolver,
     materialize_outcome_adapter_snapshot,
 )
@@ -229,6 +230,16 @@ def _resign_enrollment(
     }
 
 
+def _resign_terminal(terminal: dict, signer: Ed25519Signer) -> dict:
+    unsigned = {
+        key: value for key, value in terminal.items() if key != "signature"
+    }
+    return {
+        **unsigned,
+        "signature": signer.sign(encode(unsigned)).value,
+    }
+
+
 @pytest.mark.parametrize(
     "capability_code", ["alpha_capability", "beta_capability"]
 )
@@ -246,8 +257,13 @@ def test_two_arbitrary_capabilities_resolve_without_host_change(
 
 def test_duplicate_and_hash_mismatch_fail_signed_without_task(signer) -> None:
     capability_code = "gamma_capability"
-    entry, descriptor, _snapshot = _materialize(capability_code, signer)
-    _materialize(capability_code, signer, entry=entry)
+    entry, descriptor, snapshot = _materialize(capability_code, signer)
+    key = (
+        CONTRACT_EXPORT_ID,
+        descriptor["adapter_contract_version"],
+        descriptor["descriptor_sha256"],
+    )
+    entry[SNAPSHOT_INDEX_KEY][key] = (snapshot, snapshot)
     resolver = OutcomeAdapterResolver(signer)
     ambiguous = resolver.resolve(
         {capability_code: entry}, _pin(capability_code, descriptor)
@@ -313,6 +329,59 @@ def test_unenrolled_and_parity_rejected_terminals_create_no_task(
     assert rejected["rejection"]["reason"] == "data_fingerprint_mismatch"
     assert created == []
     assert linked == []
+
+
+@pytest.mark.parametrize(
+    ("terminal_update", "reason"),
+    [
+        ({"terminal_state": "failed"}, "terminal_state_not_selected"),
+        (
+            {"result_ref": {"schema_id": "other-result.v1"}},
+            "result_schema_not_selected",
+        ),
+    ],
+)
+def test_descriptor_selector_rejects_unselected_terminal(
+    signer,
+    terminal_update,
+    reason,
+) -> None:
+    capability_code = "selector_capability"
+    entry, descriptor, _snapshot = _materialize(capability_code, signer)
+    terminal = _signed_terminal(capability_code, signer)
+    if "result_ref" in terminal_update:
+        terminal["result_ref"] = {
+            **terminal["result_ref"],
+            **terminal_update["result_ref"],
+        }
+    else:
+        terminal.update(terminal_update)
+    terminal = _resign_terminal(terminal, signer)
+    enrollment = _enrollment(
+        capability_code,
+        descriptor,
+        terminal,
+        signer,
+    )
+    created = []
+    handler = OutcomeEvaluationTaskHandler(
+        OutcomeAdapterResolver(signer),
+        create_task_with_conn=lambda *_args, **_kwargs: created.append(
+            _args[1]
+        ),
+        append_linkage_with_conn=lambda *_args, **_kwargs: None,
+        terminal_verification_keys={signer.key_id: signer.public_key()},
+        enrollment_verification_keys={signer.key_id: signer.public_key()},
+    )
+    rejected = handler.prepare(
+        object(),
+        capability_entries={capability_code: entry},
+        terminal_receipt=terminal,
+        enrollment=enrollment,
+    )
+    assert rejected["status"] == "rejected"
+    assert rejected["rejection"]["reason"] == reason
+    assert created == []
 
 
 def test_exact_enrollment_creates_one_existing_lane_intent(signer) -> None:
@@ -481,6 +550,32 @@ def test_port_verifies_generic_observation_identity_and_signature(
         terminal_receipt=terminal,
         enrollment=enrollment,
     ) == [observation]
+
+
+def test_port_rejects_observation_batch_above_existing_lane_budget(
+    signer,
+) -> None:
+    capability_code = "budget_capability"
+    _entry, descriptor, snapshot = _materialize(capability_code, signer)
+    terminal = _signed_terminal(capability_code, signer)
+    enrollment = _enrollment(
+        capability_code,
+        descriptor,
+        terminal,
+        signer,
+    )
+    port = ProductOutcomeAdapterPort(
+        load_callable=lambda **_kwargs: lambda _envelope: [None] * 51,
+        observation_verification_keys={
+            signer.key_id: signer.public_key(),
+        },
+    )
+    with pytest.raises(ValueError, match="observation budget exceeded"):
+        port.evaluate(
+            snapshot=snapshot,
+            terminal_receipt=terminal,
+            enrollment=enrollment,
+        )
 
 
 def test_generic_source_has_no_pack_dispatch_or_resource_owner() -> None:

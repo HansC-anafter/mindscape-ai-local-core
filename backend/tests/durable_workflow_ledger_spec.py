@@ -421,7 +421,7 @@ def test_missing_pinned_version_fails_closed() -> None:
         registry.require(identity("missing:versions"))
 
 
-def test_source_has_no_owned_pool_or_production_caller() -> None:
+def test_source_has_no_owned_pool_and_only_declared_composition_callers() -> None:
     root = Path(__file__).resolve().parents[1]
     durable_root = root / "app" / "services" / "workflow" / "durable_state"
     source = "\n".join(
@@ -456,6 +456,9 @@ def test_source_has_no_owned_pool_or_production_caller() -> None:
         / "services"
         / "workspace_capability_admission"
         / "durable_workflow_policy.py",
+        root / "app" / "services" / "capability_runtime_activation.py",
+        root / "app" / "runner" / "task_executor_admission.py",
+        root / "app" / "runner" / "task_executor_child.py",
     }
     callers = []
     for path in (root / "app").rglob("*.py"):

@@ -27,7 +27,11 @@ from backend.app.services.task_admission_pressure_scope import (
 logger = logging.getLogger(__name__)
 
 ADMISSION_DEFERRED_REASON = "admission_deferred"
-_RUNNER_TASK_TYPES = ("playbook_execution", "tool_execution")
+_RUNNER_TASK_TYPES = (
+    "playbook_execution",
+    "tool_execution",
+    "product_outcome_evaluation",
+)
 
 
 def _utc_now() -> datetime:
@@ -334,7 +338,11 @@ class TaskAdmissionService:
                 COUNT(*) AS pending_total,
                 MIN(COALESCE(frontier_enqueued_at, next_eligible_at, created_at)) AS oldest_pending_at
             FROM tasks
-            WHERE task_type IN (:task_type_pb, :task_type_tool)
+            WHERE task_type IN (
+                :task_type_pb,
+                :task_type_tool,
+                :task_type_outcome
+            )
               AND status = :pending_status
               AND (blocked_reason IS NULL OR blocked_reason = :unblocked_reason)
               AND next_eligible_at <= :now
@@ -347,7 +355,11 @@ class TaskAdmissionService:
             f"""
             SELECT COUNT(*) AS running_total
             FROM tasks
-            WHERE task_type IN (:task_type_pb, :task_type_tool)
+            WHERE task_type IN (
+                :task_type_pb,
+                :task_type_tool,
+                :task_type_outcome
+            )
               AND status = :running_status
               AND {queue_clause}
               {pressure_scope.sql_clause}
@@ -356,6 +368,7 @@ class TaskAdmissionService:
         params = {
             "task_type_pb": _RUNNER_TASK_TYPES[0],
             "task_type_tool": _RUNNER_TASK_TYPES[1],
+            "task_type_outcome": _RUNNER_TASK_TYPES[2],
             "pending_status": "pending",
             "running_status": "running",
             "now": _utc_now(),

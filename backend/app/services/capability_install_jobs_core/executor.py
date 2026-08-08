@@ -161,6 +161,7 @@ async def run_next_job(
         )
         result = await execute_pipeline_job(service, job, fastapi_app=fastapi_app)
         payload = pipeline_payload(result)
+        payload["artifact_sha256"] = source_payload.get("archive_sha256")
         activation = await service._notify_execution_activation(
             install_id=install_id,
             pipeline_payload=payload,

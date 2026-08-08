@@ -27,11 +27,11 @@ def test_gated_route_composition_requires_explicit_dependencies() -> None:
     ) in paths
 
 
-def test_runtime_composition_remains_unmounted_until_b1() -> None:
+def test_runtime_composition_uses_the_single_bootstrap_seam() -> None:
     root = Path(__file__).resolve().parents[1]
     routes = (root / "app/app_bootstrap/routes.py").read_text()
     main = (root / "app/main.py").read_text()
-    assert "register_" + "durable_workflow_routes" not in routes
+    assert routes.count("register_" + "runtime_durable_workflow_routes(") == 1
     assert "register_" + "durable_workflow_routes" not in main
 
 
