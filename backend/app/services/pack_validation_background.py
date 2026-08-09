@@ -91,11 +91,10 @@ def _run_validation_sync(
     playbook_installer.specs_dir = specs_dir
     playbook_installer.local_core_root = local_core_root
 
-    validator = PlaybookValidator(
-        local_core_root=local_core_root,
-        capabilities_dir=capabilities_dir,
-        validate_tools_direct_call_func=playbook_installer._validate_tools_direct_call,
+    from backend.app.services.pack_validation_background_core import (
+        validate_installed_playbooks_isolated,
     )
+
     result = InstallResult(capability_code=pack_id)
 
     _installed_packs_store.update_metadata(
@@ -114,7 +113,13 @@ def _run_validation_sync(
         manifest_path=manifest_path,
     )
 
-    validator.validate_installed_playbooks(pack_id, manifest, result)
+    result = validate_installed_playbooks_isolated(
+        pack_id=pack_id,
+        manifest=manifest,
+        local_core_root=local_core_root,
+        capabilities_dir=capabilities_dir,
+        specs_dir=specs_dir,
+    )
 
     if result.errors:
         payload = build_validation_status_payload(
