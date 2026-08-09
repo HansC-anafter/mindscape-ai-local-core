@@ -135,6 +135,63 @@ def test_dry_run_fails_closed_when_catalog_is_unavailable(
     assert result["unresolved_current_heads"] == ["live_head"]
 
 
+def test_dry_run_checks_catalog_when_no_capability_metadata_exists(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.ini"},
+    )
+    monkeypatch.setattr(orchestrator.scanner, "scan_capabilities", lambda: [])
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_current_revisions",
+        lambda _db_type: ["unresolved_live_head"],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_runtime_known_revisions",
+        lambda _db_type: {"known_revision"},
+    )
+
+    result = orchestrator.dry_run("postgres")
+
+    assert result["status"] == "error"
+    assert result["catalog_complete"] is False
+    assert result["unresolved_current_heads"] == ["unresolved_live_head"]
+
+
+def test_vector_dry_run_reports_catalog_failure_without_secondary_exception(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"vector": tmp_path / "alembic.ini"},
+    )
+    monkeypatch.setattr(orchestrator, "_load_script_directory", lambda _db_type: object())
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_current_revisions",
+        lambda _db_type: ["unresolved_live_head"],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_strict_catalog_snapshot",
+        lambda _db_type, _current_revisions: {
+            "status": "error",
+            "catalog_complete": False,
+            "unresolved_current_heads": ["unresolved_live_head"],
+        },
+    )
+
+    result = orchestrator.dry_run("vector")
+
+    assert result["status"] == "revision_catalog_unavailable"
+    assert result["unresolved_current_heads"] == ["unresolved_live_head"]
+
+
 def test_apply_never_executes_after_fail_closed_dry_run(
     tmp_path: Path,
     monkeypatch,

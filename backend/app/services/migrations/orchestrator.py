@@ -75,15 +75,6 @@ class MigrationOrchestrator:
         all_metadata = self.scanner.scan_capabilities()
         db_metadata = [m for m in all_metadata if m.db_type == db_type]
 
-        if not db_metadata:
-            return {"status": "no_migrations", "migrations": []}
-
-        # Resolve dependencies
-        try:
-            sorted_metadata = self.dependency_resolver.topological_sort(db_metadata)
-        except ValueError as e:
-            return {"status": "error", "error": str(e)}
-
         # Alembic stores current heads in alembic_version, not every historical
         # revision that has already been traversed. Build the full applied
         # ancestry from the current heads before deciding what is still pending.
@@ -96,6 +87,22 @@ class MigrationOrchestrator:
             return catalog_snapshot
         applied_revisions = set(catalog_snapshot["applied_revisions"])
         runtime_known_revisions = set(catalog_snapshot["runtime_known_revisions"])
+
+        if not db_metadata:
+            return {
+                "status": "no_migrations",
+                "catalog_complete": True,
+                "current_revision": self._format_current_revisions(current_revisions),
+                "current_revisions": sorted(current_revisions),
+                "applied_revisions": sorted(applied_revisions),
+                "migrations": [],
+            }
+
+        # Resolve dependencies only after the live runtime catalog is proven complete.
+        try:
+            sorted_metadata = self.dependency_resolver.topological_sort(db_metadata)
+        except ValueError as e:
+            return {"status": "error", "error": str(e)}
 
         # Build migration plan
         plan = []
@@ -188,7 +195,6 @@ class MigrationOrchestrator:
             return {
                 **catalog_snapshot,
                 "status": "revision_catalog_unavailable",
-                "target_revision": revision,
             }
         applied_revisions = set(catalog_snapshot["applied_revisions"])
         try:
