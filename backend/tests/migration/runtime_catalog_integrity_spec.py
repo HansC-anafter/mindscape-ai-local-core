@@ -6,6 +6,9 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from backend.app.services.migrations.orchestrator import MigrationOrchestrator
+from backend.app.services.migrations.runtime_catalog_integrity_facade import (
+    resolve_runtime_catalog_snapshot,
+)
 from backend.app.services.migrations.runtime_locations import (
     configure_runtime_version_locations,
 )
@@ -70,6 +73,30 @@ def test_active_capability_revision_replaces_same_id_pack_tombstone(
     assert declared.as_posix() not in locations
     assert script.get_revision(revision).path.endswith(f"{revision}_create_ig.py")
     assert script.get_revision("core_revision") is not None
+
+
+def test_catalog_integrity_facade_returns_complete_runtime_snapshot() -> None:
+    result = resolve_runtime_catalog_snapshot(
+        db_type="postgres",
+        current_revisions={"head_revision"},
+        runtime_known_revisions_resolver=lambda _db_type: {
+            "base_revision",
+            "head_revision",
+        },
+        applied_revisions_resolver=lambda _db_type, _heads: {
+            "base_revision",
+            "head_revision",
+        },
+    )
+
+    assert result == {
+        "status": "success",
+        "catalog_complete": True,
+        "current_revisions": ["head_revision"],
+        "unresolved_current_heads": [],
+        "runtime_known_revisions": ["base_revision", "head_revision"],
+        "applied_revisions": ["base_revision", "head_revision"],
+    }
 
 
 def test_two_active_capabilities_cannot_share_revision_id(tmp_path: Path) -> None:

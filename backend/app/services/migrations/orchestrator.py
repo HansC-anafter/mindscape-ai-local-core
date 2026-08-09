@@ -23,6 +23,7 @@ from .runtime_locations import (
     append_runtime_version_locations,
     configure_runtime_version_locations,
 )
+from .runtime_catalog_integrity_facade import resolve_runtime_catalog_snapshot
 from .validator import MigrationValidator
 
 logger = logging.getLogger(__name__)
@@ -137,45 +138,14 @@ class MigrationOrchestrator:
         db_type: str,
         current_revisions: set[str],
     ) -> Dict:
-        """Resolve a complete runtime DAG or return a fail-closed error."""
+        """Delegate complete runtime DAG validation to the catalog facade."""
 
-        runtime_known_revisions = self._get_runtime_known_revisions(db_type)
-        if not runtime_known_revisions:
-            return {
-                "status": "error",
-                "error": f"Could not enumerate the {db_type} runtime migration catalog.",
-                "catalog_complete": False,
-                "current_revisions": sorted(current_revisions),
-                "unresolved_current_heads": sorted(current_revisions),
-            }
-
-        unresolved_current_heads = sorted(
-            current_revisions - runtime_known_revisions
+        return resolve_runtime_catalog_snapshot(
+            db_type=db_type,
+            current_revisions=current_revisions,
+            runtime_known_revisions_resolver=self._get_runtime_known_revisions,
+            applied_revisions_resolver=self._get_applied_revisions,
         )
-        if unresolved_current_heads:
-            return {
-                "status": "error",
-                "error": (
-                    f"The {db_type} runtime migration catalog cannot resolve "
-                    f"live heads: {', '.join(unresolved_current_heads)}"
-                ),
-                "catalog_complete": False,
-                "current_revisions": sorted(current_revisions),
-                "unresolved_current_heads": unresolved_current_heads,
-            }
-
-        applied_revisions = self._get_applied_revisions(
-            db_type,
-            current_revisions,
-        )
-        return {
-            "status": "success",
-            "catalog_complete": True,
-            "current_revisions": sorted(current_revisions),
-            "unresolved_current_heads": [],
-            "runtime_known_revisions": sorted(runtime_known_revisions),
-            "applied_revisions": sorted(applied_revisions),
-        }
 
     def _dry_run_host_catalog(self, db_type: str) -> Dict:
         """Plan an isolated host-owned migration catalog without pack metadata."""
