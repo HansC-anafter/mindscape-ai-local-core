@@ -26,11 +26,10 @@ Or run the startup helper with an execution-policy bypass:
 powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
 ```
 
-For an existing installation, update and restart through the same DPAPI-aware product entrypoint:
+For an existing installation, let the installer own the update, setup, and DPAPI-aware startup sequence:
 
 ```powershell
-git pull --ff-only
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update
 ```
 
 Use `.\scripts\compose.ps1 restart <service>` for later service-only restarts. Bare `docker compose restart` does not load the protected runtime secret.
@@ -69,6 +68,12 @@ The startup helper can configure host-side companion processes and then start Co
 
 On macOS, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
 
+Update an existing checkout through the installer-owned flow:
+
+```bash
+./install.sh --update
+```
+
 On Apple Silicon, make sure Docker Desktop has enough memory assigned for the default service set.
 
 ## Linux
@@ -92,6 +97,12 @@ The startup helper can configure systemd services for host-side companion proces
 ```
 
 On Linux, the helper starts Compose with the `control-plane` profile after the host-side checks complete.
+
+Update an existing checkout through the installer-owned flow:
+
+```bash
+./install.sh --update
+```
 
 ## Optional Local Inference
 

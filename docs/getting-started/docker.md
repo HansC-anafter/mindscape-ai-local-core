@@ -37,23 +37,21 @@ The helper scripts check Docker availability, bootstrap machine-owned runtime se
 
 ## Update an Existing Installation
 
-Run the update from the existing repository directory. The update remains on the current branch and fails instead of creating an implicit merge commit:
+Run the installer in update mode from the existing repository directory. It keeps update, setup, secret bootstrap, and startup in one repository-owned flow:
 
 macOS and Linux:
 
 ```bash
-git pull --ff-only
-./scripts/start.sh
+./install.sh --update
 ```
 
 Windows PowerShell:
 
 ```powershell
-git pull --ff-only
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update
 ```
 
-The startup helpers own host preparation, machine-owned runtime-secret loading, and Compose startup. For a later container-only operation, use `./scripts/compose.sh <arguments>` on macOS/Linux or `.\scripts\compose.ps1 <arguments>` on Windows. Bare `docker compose` bypasses that runtime-secret boundary and is not a supported update or restart path.
+The installers use a fast-forward-only pull and stop on Git failure before running the existing setup and startup helpers. Those helpers own host preparation, machine-owned runtime-secret loading, and Compose startup. For a later container-only operation, use `./scripts/compose.sh <arguments>` on macOS/Linux or `.\scripts\compose.ps1 <arguments>` on Windows. Bare `docker compose` bypasses that runtime-secret boundary and is not a supported update or restart path.
 
 ## Startup Modes
 

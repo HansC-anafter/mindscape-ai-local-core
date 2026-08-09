@@ -24,16 +24,19 @@ See [Docker Deployment Guide](./docker.md) for service details, profiles, ports,
 
 ## Update an Existing Installation
 
-Use the repository's canonical startup helper after pulling a fast-forward update. On Windows PowerShell:
+Run the repository installer in update mode from the existing checkout. On Windows PowerShell:
 
 ```powershell
-git pull --ff-only
-powershell -ExecutionPolicy Bypass -File .\scripts\start.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1 -Update
 ```
 
-This path loads the DPAPI-protected internal runtime secret before Compose evaluates the service configuration. Use `.\scripts\compose.ps1 restart <service>` for a later service-only restart. Do not replace either command with bare `docker compose`, and do not add `POSTGRES_VECTOR_RUNTIME_PASSWORD` to `.env`.
+On macOS and Linux:
 
-For macOS and Linux update commands, see [Update an Existing Installation](./docker.md#update-an-existing-installation).
+```bash
+./install.sh --update
+```
+
+The installer owns the fast-forward-only update, repository setup, and platform startup sequence. On Windows the startup path loads the DPAPI-protected internal runtime secret before Compose evaluates the service configuration. Use `.\scripts\compose.ps1 restart <service>` for a later Windows service-only restart. Do not replace the installer with bare `docker compose`, and do not add `POSTGRES_VECTOR_RUNTIME_PASSWORD` to `.env`.
 
 ## Environment File
 

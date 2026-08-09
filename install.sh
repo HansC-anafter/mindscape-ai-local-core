@@ -8,6 +8,9 @@
 # Or with custom directory name:
 #   curl -fsSL https://... | bash -s -- --dir my-mindscape
 #
+# Update an existing checkout from its root:
+#   ./install.sh --update
+#
 
 set -e
 
@@ -15,6 +18,7 @@ set -e
 REPO_URL="https://github.com/HansC-anafter/mindscape-ai-local-core.git"
 INSTALL_DIR=""
 BRANCH="master"
+UPDATE=0
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -26,6 +30,10 @@ while [[ $# -gt 0 ]]; do
         --branch)
             BRANCH="$2"
             shift 2
+            ;;
+        --update)
+            UPDATE=1
+            shift
             ;;
         *)
             echo "Unknown option: $1"
@@ -111,20 +119,41 @@ fi
 echo ""
 
 # Determine install directory
+if [ "$UPDATE" -eq 1 ] && [ -z "$INSTALL_DIR" ] && [ -d ".git" ] && [ -f "scripts/start.sh" ]; then
+    INSTALL_DIR="$(pwd)"
+fi
+
 if [ -z "$INSTALL_DIR" ]; then
     # Use default name from repo
     INSTALL_DIR="mindscape-ai-local-core"
 fi
 
+if [ "$UPDATE" -eq 1 ] && [ ! -d "$INSTALL_DIR" ]; then
+    echo "ERROR: Update target '$INSTALL_DIR' does not exist."
+    echo "Run this command from the repository root or pass --dir with an existing checkout."
+    exit 1
+fi
+
 # Check if directory already exists
 if [ -d "$INSTALL_DIR" ]; then
-    echo "WARNING: Directory '$INSTALL_DIR' already exists."
-    read -p "Update existing installation? (y/N) " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    SHOULD_UPDATE="$UPDATE"
+    if [ "$UPDATE" -ne 1 ]; then
+        echo "WARNING: Directory '$INSTALL_DIR' already exists."
+        read -p "Update existing installation? (y/N) " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            SHOULD_UPDATE=1
+        fi
+    fi
+
+    if [ "$SHOULD_UPDATE" -eq 1 ]; then
         echo "Updating existing installation..."
         cd "$INSTALL_DIR"
-        git pull origin "$BRANCH"
+        if [ ! -d ".git" ]; then
+            echo "ERROR: '$INSTALL_DIR' is not a Git checkout."
+            exit 1
+        fi
+        git pull --ff-only origin "$BRANCH"
     else
         echo "Installation cancelled."
         exit 0

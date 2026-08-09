@@ -156,7 +156,22 @@ def test_windows_adapter_uses_current_user_dpapi_and_no_plaintext_store():
     assert "& docker compose @ComposeArguments" in compose_facade
 
 
-def test_public_windows_update_guides_use_secret_aware_startup_path():
+def test_installers_own_update_setup_and_start_flow():
+    windows_installer = (REPO_ROOT / "install.ps1").read_text(encoding="utf-8")
+    unix_installer = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
+
+    assert "[switch]$Update" in windows_installer
+    assert "git pull --ff-only origin $Branch" in windows_installer
+    assert "& .\\scripts\\setup.ps1" in windows_installer
+    assert "& .\\scripts\\start.ps1" in windows_installer
+
+    assert "--update)" in unix_installer
+    assert 'git pull --ff-only origin "$BRANCH"' in unix_installer
+    assert "./scripts/setup.sh" in unix_installer
+    assert "./scripts/start.sh" in unix_installer
+
+
+def test_public_update_guides_use_installer_owned_update_path():
     guide_paths = (
         REPO_ROOT / "README.md",
         REPO_ROOT / "docs/getting-started/installation.md",
@@ -166,6 +181,7 @@ def test_public_windows_update_guides_use_secret_aware_startup_path():
 
     for guide_path in guide_paths:
         guide = guide_path.read_text(encoding="utf-8")
-        assert "git pull --ff-only" in guide
-        assert "scripts\\start.ps1" in guide
+        assert "powershell -ExecutionPolicy Bypass -File .\\install.ps1 -Update" in guide
+        assert "./install.sh --update" in guide
+        assert "git pull --ff-only" not in guide
         assert "docker compose restart backend" not in guide

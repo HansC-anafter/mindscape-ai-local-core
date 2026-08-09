@@ -278,7 +278,7 @@ RECEIPT_PATH="$RECEIPT_DIR/$RECEIPT_KEY.receipt"
 RANGE_FINGERPRINT="$(printf '%s\n' "$BASE_FULL" "$HEAD_FULL" "$VERIFIER_HASH" | git hash-object --stdin)"
 SEMANTIC_FINGERPRINT="$(printf '%s\n' "$BASE_FULL" "$HEAD_FULL" "$CONTRACT_HASH" | git hash-object --stdin)"
 SHELL_FINGERPRINT="$(path_fingerprint \
-  scripts/start.sh scripts/compose.sh scripts/runtime_secrets \
+  install.sh scripts/start.sh scripts/compose.sh scripts/runtime_secrets \
   docker/pgbouncer/start.sh docker/postgres/init-dual-dbs.sh \
   docker/postgres/reconcile-vector-runtime-role.sh \
   scripts/ci/runtime_secret_disposable_integration.sh)"
@@ -289,7 +289,8 @@ BACKEND_FINGERPRINT="$(printf '%s\n' "$BACKEND_IMAGE_ID" "$(path_fingerprint \
   backend/app/app_bootstrap/lifecycle_startup.py \
   backend/app/app_bootstrap/routes.py docker-compose.yml \
   docker/postgres docker/pgbouncer scripts/runtime_secrets \
-  scripts/start.sh scripts/start.ps1 scripts/compose.sh scripts/compose.ps1 \
+  install.sh install.ps1 scripts/start.sh scripts/start.ps1 \
+  scripts/compose.sh scripts/compose.ps1 \
   backend/tests/database/runtime_secret_values_spec.py \
   backend/tests/runtime_secret_bootstrap_contract_spec.py \
   backend/tests/runtime_secret_compose_contract_spec.py \
@@ -337,6 +338,7 @@ run_cached_gate git-scope "Git scope and whitespace" "$RANGE_FINGERPRINT" \
 run_cached_gate credential-scan "Credential and .env scan" "$RANGE_FINGERPRINT" \
   reject_secret_literals
 run_cached_gate shell-syntax "Shell syntax" "$SHELL_FINGERPRINT" bash -n \
+  install.sh \
   scripts/start.sh \
   scripts/compose.sh \
   scripts/runtime_secrets/file_store.sh \
