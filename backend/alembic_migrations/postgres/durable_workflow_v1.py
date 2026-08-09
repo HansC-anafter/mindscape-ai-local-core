@@ -311,7 +311,7 @@ DDL_STATEMENTS = (
     LANGUAGE plpgsql
     AS $$
     BEGIN
-        RAISE EXCEPTION '%% is insert-only; use an append-only corrective receipt', TG_TABLE_NAME;
+        RAISE EXCEPTION '% is insert-only; use an append-only corrective receipt', TG_TABLE_NAME;
     END;
     $$
     """,

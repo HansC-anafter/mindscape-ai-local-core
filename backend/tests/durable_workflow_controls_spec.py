@@ -24,6 +24,17 @@ from durable_workflow_ledger_spec import (
 )
 
 
+def test_immutable_trigger_raise_has_one_placeholder_for_table_name() -> None:
+    trigger_function = next(
+        statement
+        for statement in durable_workflow_v1.DDL_STATEMENTS
+        if "CREATE OR REPLACE FUNCTION reject_durable_workflow_immutable_mutation" in statement
+    )
+
+    assert "RAISE EXCEPTION '% is insert-only" in trigger_function
+    assert "RAISE EXCEPTION '%% is insert-only" not in trigger_function
+
+
 @pytest.fixture(scope="module")
 def engine():
     dsn = os.environ.get("DURABLE_WORKFLOW_TEST_DATABASE_URL")
