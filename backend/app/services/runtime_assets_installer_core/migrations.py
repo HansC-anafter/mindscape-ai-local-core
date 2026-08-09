@@ -21,6 +21,7 @@ from backend.app.services.runtime_database_incident_gate import (
     require_runtime_database_mutation_allowed,
 )
 from ..install_result import InstallResult
+from .candidate_import_scope import CandidateCapabilityImportScope
 from .migrations_install import install_migrations
 from .migrations_metadata import (
     _collect_migration_files,
@@ -156,6 +157,7 @@ def execute_migrations(
         return
 
     engine = None
+    candidate_import_scope = None
     try:
         migration_started = time.monotonic()
         logger.info(f"Executing database migrations for {capability_code}...")
@@ -273,6 +275,11 @@ def execute_migrations(
         candidate_version_locations = sorted(
             {path.parent for path in current_migration_files}
         )
+        candidate_import_scope = CandidateCapabilityImportScope(
+            capabilities_dir,
+            capability_code,
+        )
+        candidate_import_scope.activate()
         orchestrator = MigrationOrchestrator(
             capabilities_root,
             alembic_configs,
@@ -520,6 +527,8 @@ def execute_migrations(
             result.migration_status = {}
         result.migration_status[capability_code] = "error"
     finally:
+        if candidate_import_scope is not None:
+            candidate_import_scope.restore()
         try:
             engine.dispose()
         except Exception:
