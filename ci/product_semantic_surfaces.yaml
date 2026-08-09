@@ -1,6 +1,6 @@
 version: 1
 registry_id: mindscape.product-semantic-surfaces.local-core
-updated_at: "2026-07-29"
+updated_at: "2026-08-10"
 owner_review_handle: "@team-leads"
 
 declaration:
@@ -154,6 +154,7 @@ surfaces:
       - Progress reads return one compact current or stale-known snapshot, or a redacted 503 with Retry-After; frontend polling obeys bounded 10, 20, and 30 second intervals and stops when hidden or terminal.
       - Runtime repair preserves the authorized protected runner capacity 2+2+2+1=7 and existing queue visibility; non-protected development lanes remain separately visible and cannot satisfy or mask a protected-lane shortage. It does not expand PgBouncer pools as a workaround, and may claim only isolated recovery or controlled-switchover drill readiness; production high availability requires a separate failure-domain and controller decision.
       - Host-session auto-registration preserves every owner-scoped runtime, workspace bridge, 300-second health freshness, immediate account and execution-environment changes, pool ordering, and plain-runtime shadow semantics while coalescing duplicate fleet refreshes before PostgreSQL persistence.
+      - Workspace capability admission schema readiness is runtime truth, not liveness: host-owned revision 20260727120000 and its four host admission relations must be present before the execution role is ready; recovery uses one exact create-only incident permit and the canonical targeted migration CLI, never pack install, manual DDL, Alembic stamp, upgrade-heads expansion, pool changes, queue clearing, or background polling.
     path_globs:
       - backend/app/database/recovery_backoff.py
       - backend/app/database/application_identity.py
@@ -534,13 +535,14 @@ surfaces:
   - id: psc.local-core.workspace-aol-voice-interaction-ingress.v1
     tier: P0
     owner: "@team-leads"
-    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-global-voice-meeting-bootstrap-contract-2026-07-28.zh-TW.md
+    contract_doc: mindscape-ai-cloud/docs/internal/local-core/product-semantics/workspace-global-voice-meeting-schema-readiness-corrective-contract-2026-08-10.zh-TW.md
     requires_product_semantic_declaration: true
     semantics:
       - Workspace voice is a host-owned Runtime tool shown through the existing shared workspace rail or tray; with one explicit target it preserves that target, and with zero targets a user click singleflight reuses or creates one Workspace/capability-scoped Meeting Engine session before freezing the resulting Meeting target.
       - Voice changes input modality only; final transcript preserves target-owned context, authorization, approval, submission policy, canonical writer, status, and receipts, while workspace chat, Meeting, and Host Runtime keep their existing writers.
       - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
       - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
+      - Global voice Meeting bootstrap readiness requires the live workspace-admission host schema owned by revision 20260727120000; health or container liveness cannot substitute for schema and original-path readback, and missing schema restores through the existing incident-gated migration path without a second session writer, fallback route, pack install, resource downgrade, or UX poller.
     path_globs:
       - backend/app/models/meeting_voice.py
       - backend/app/models/meeting_voice_session.py
