@@ -149,6 +149,8 @@ def test_windows_adapter_uses_current_user_dpapi_and_no_plaintext_store():
     assert "WriteAllText($envFile" not in facade
     assert "icacls.exe" in adapter
     assert "Set-MindscapePrivateAcl -Path $Path" in adapter
+    assert "Import-MindscapeDpapiAssembly" in adapter
+    assert '"System.Security.Cryptography.ProtectedData"' in adapter
 
     compose_facade = (REPO_ROOT / "scripts/compose.ps1").read_text(encoding="utf-8")
     assert "Import-Module $modulePath" in compose_facade
