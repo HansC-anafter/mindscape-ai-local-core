@@ -279,6 +279,7 @@ RANGE_FINGERPRINT="$(printf '%s\n' "$BASE_FULL" "$HEAD_FULL" "$VERIFIER_HASH" | 
 SEMANTIC_FINGERPRINT="$(printf '%s\n' "$BASE_FULL" "$HEAD_FULL" "$CONTRACT_HASH" | git hash-object --stdin)"
 SHELL_FINGERPRINT="$(path_fingerprint \
   install.sh scripts/start.sh scripts/compose.sh scripts/runtime_secrets \
+  scripts/container_cleanup \
   docker/pgbouncer/start.sh docker/postgres/init-dual-dbs.sh \
   docker/postgres/reconcile-vector-runtime-role.sh \
   scripts/ci/runtime_secret_disposable_integration.sh)"
@@ -289,11 +290,13 @@ BACKEND_FINGERPRINT="$(printf '%s\n' "$BACKEND_IMAGE_ID" "$(path_fingerprint \
   backend/app/app_bootstrap/lifecycle_startup.py \
   backend/app/app_bootstrap/routes.py docker-compose.yml \
   docker/postgres docker/pgbouncer scripts/runtime_secrets \
+  scripts/container_cleanup \
   install.sh install.ps1 scripts/start.sh scripts/start.ps1 \
   scripts/compose.sh scripts/compose.ps1 \
   backend/tests/database/runtime_secret_values_spec.py \
   backend/tests/runtime_secret_bootstrap_contract_spec.py \
   backend/tests/runtime_secret_compose_contract_spec.py \
+  backend/tests/scripts/windows_container_cleanup_contract_spec.py \
   backend/tests/postgres_vector_runtime_reconcile_spec.py \
   backend/tests/database/connection_semantics_spec.py \
   backend/tests/postgres_runtime_readiness_config_spec.py \

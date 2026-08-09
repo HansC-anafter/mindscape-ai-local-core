@@ -356,42 +356,40 @@ Write-Host "Runtime secrets ready ($($runtimeSecretState.Backend), $($runtimeSec
 # Change to project root
 Set-Location $ProjectRoot
 
+$containerCleanupModule = Join-Path $ScriptDir "container_cleanup\ContainerCleanup.psm1"
+Import-Module $containerCleanupModule -Force
+
 # Check for existing containers with same names and offer to clean them up
 Write-Host "Checking for existing containers..." -ForegroundColor Yellow
-$existingContainers = docker ps -a --filter "name=mindscape-ai-local-core" --format "{{.Names}}" 2>&1
-if ($LASTEXITCODE -eq 0 -and $existingContainers) {
-    $containerList = $existingContainers -split "`n" | Where-Object { $_ -ne "" }
-    if ($containerList.Count -gt 0) {
-        Write-Host ""
-        Write-Host "WARNING: Found existing containers with conflicting names:" -ForegroundColor Yellow
-        foreach ($container in $containerList) {
-            Write-Host "  - $container" -ForegroundColor Yellow
+$containerList = @(Get-MindscapeConflictingContainers)
+if ($containerList.Count -gt 0) {
+    Write-Host ""
+    Write-Host "WARNING: Found existing containers with conflicting names:" -ForegroundColor Yellow
+    foreach ($container in $containerList) {
+        Write-Host "  - $container" -ForegroundColor Yellow
+    }
+    Write-Host ""
+    Write-Host "These containers may prevent new containers from starting." -ForegroundColor Yellow
+    Write-Host ""
+    $response = Read-Host "Would you like to remove them? (Y/N)"
+    if ($response -eq "Y" -or $response -eq "y") {
+        Write-Host "Removing existing containers..." -ForegroundColor Cyan
+        # Use helper function to handle docker compose commands properly
+        $exitCode = Invoke-DockerCompose -Arguments @("down") -SuppressOutput
+        if ($exitCode -ne 0 -and $exitCode -ne 1) {
+            # Exit code 1 is OK (some containers may not exist)
+            Write-Host "  WARNING: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
         }
+        # Remove only containers that still exist after compose cleanup.
+        Remove-MindscapeResidualContainers
+        Write-Host "  OK Containers removed" -ForegroundColor Green
         Write-Host ""
-        Write-Host "These containers may prevent new containers from starting." -ForegroundColor Yellow
+    } else {
         Write-Host ""
-        $response = Read-Host "Would you like to remove them? (Y/N)"
-        if ($response -eq "Y" -or $response -eq "y") {
-            Write-Host "Removing existing containers..." -ForegroundColor Cyan
-            # Use helper function to handle docker compose commands properly
-            $exitCode = Invoke-DockerCompose -Arguments @("down") -SuppressOutput
-            if ($exitCode -ne 0 -and $exitCode -ne 1) {
-                # Exit code 1 is OK (some containers may not exist)
-                Write-Host "  WARNING: docker compose down had issues, trying individual removal..." -ForegroundColor Yellow
-            }
-            # Also try to remove individual containers if compose down didn't work
-            foreach ($container in $containerList) {
-                docker rm -f $container 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" } | Out-Null
-            }
-            Write-Host "  OK Containers removed" -ForegroundColor Green
-            Write-Host ""
-        } else {
-            Write-Host ""
-            Write-Host "WARNING: Keeping existing containers. If you encounter errors, run:" -ForegroundColor Yellow
-            Write-Host "  .\scripts\compose.ps1 down" -ForegroundColor Cyan
-            Write-Host "  .\scripts\compose.ps1 up -d" -ForegroundColor Cyan
-            Write-Host ""
-        }
+        Write-Host "WARNING: Keeping existing containers. If you encounter errors, run:" -ForegroundColor Yellow
+        Write-Host "  .\scripts\compose.ps1 down" -ForegroundColor Cyan
+        Write-Host "  .\scripts\compose.ps1 up -d" -ForegroundColor Cyan
+        Write-Host ""
     }
 }
 

@@ -71,10 +71,11 @@ cd "$PROJECT_ROOT"
 source "$SCRIPT_DIR/runtime_secrets/runtime_secrets.sh"
 mindscape_initialize_runtime_secrets "$PROJECT_ROOT"
 echo "Runtime secrets ready ($MINDSCAPE_RUNTIME_SECRET_BACKEND, $MINDSCAPE_RUNTIME_SECRET_STATE)."
+source "$SCRIPT_DIR/container_cleanup/container_cleanup.sh"
 
 # Check for existing containers with same names and offer to clean them up
 echo "Checking for existing containers..."
-EXISTING_CONTAINERS=$(docker ps -a --filter "name=mindscape-ai-local-core" --format "{{.Names}}" 2>/dev/null)
+EXISTING_CONTAINERS="$(mindscape_list_conflicting_containers)"
 if [ -n "$EXISTING_CONTAINERS" ]; then
     echo ""
     echo "WARNING: Found existing containers with conflicting names:"
@@ -90,13 +91,11 @@ if [ -n "$EXISTING_CONTAINERS" ]; then
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "Removing existing containers..."
-        docker compose down 2>/dev/null
-        # Also try to remove individual containers if compose down didn't work
-        echo "$EXISTING_CONTAINERS" | while read -r container; do
-            if [ -n "$container" ]; then
-                docker rm -f "$container" 2>/dev/null
-            fi
-        done
+        if ! docker compose down 2>/dev/null; then
+            echo "  WARNING: docker compose down had issues, trying individual removal..."
+        fi
+        # Remove only containers that still exist after compose cleanup.
+        mindscape_remove_residual_containers
         echo "  OK Containers removed"
         echo ""
     else

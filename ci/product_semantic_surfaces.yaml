@@ -214,6 +214,7 @@ surfaces:
       - install.sh
       - scripts/start.ps1
       - scripts/start.sh
+      - scripts/container_cleanup/**
       - scripts/compose.ps1
       - scripts/compose.sh
       - scripts/runtime_secrets/**
@@ -235,6 +236,7 @@ surfaces:
       - backend/tests/database_query_failure_evidence_spec.py
       - backend/tests/database/runtime_secret_values_spec.py
       - backend/tests/runtime_secret_*_spec.py
+      - backend/tests/scripts/windows_container_cleanup_contract_spec.py
       - backend/tests/compose_topology_matrix_spec.py
       - backend/tests/postgres_runtime_readiness_config_spec.py
       - backend/tests/postgres_vector_runtime_reconcile_spec.py
