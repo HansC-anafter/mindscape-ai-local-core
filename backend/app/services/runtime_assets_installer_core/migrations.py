@@ -21,7 +21,7 @@ from backend.app.services.runtime_database_incident_gate import (
     require_runtime_database_mutation_allowed,
 )
 from ..install_result import InstallResult
-from .candidate_import_scope import CandidateCapabilityImportScope
+from .candidate_import_facade import CandidateCapabilityImportScope
 from .migrations_install import install_migrations
 from .migrations_metadata import (
     _collect_migration_files,

@@ -2,7 +2,7 @@ import importlib
 import sys
 from pathlib import Path
 
-from app.services.runtime_assets_installer_core.candidate_import_scope import (
+from app.services.runtime_assets_installer_core.candidate_import_facade import (
     CandidateCapabilityImportScope,
 )
 
