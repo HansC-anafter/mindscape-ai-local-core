@@ -23,6 +23,7 @@ def test_push_verifier_owns_required_release_gates() -> None:
         "install.sh",
         "install.ps1",
         "run_cached_gate",
+        "contract_root_is_complete",
         "--explain",
         "mindscape.local-core-push-gate.v1",
         "mindscape.local-core-push-verification.v1",
@@ -32,6 +33,17 @@ def test_push_verifier_owns_required_release_gates() -> None:
 
     assert "git rev-parse --git-common-dir" in source
     assert "--path-format=absolute" not in source
+
+
+def test_push_verifier_rejects_incomplete_contract_roots_before_selection() -> None:
+    source = VERIFIER.read_text(encoding="utf-8")
+
+    assert (
+        'contract_root_is_complete "$REPO_ROOT/.contract-sources/mindscape-ai-cloud"'
+        in source
+    )
+    assert 'contract_root_is_complete "$REPO_ROOT/../mindscape-ai-cloud"' in source
+    assert "configured mindscape-ai-cloud contract source is incomplete" in source
 
 
 def test_pre_push_hook_delegates_to_canonical_verifier() -> None:

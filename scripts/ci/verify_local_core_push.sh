@@ -106,18 +106,28 @@ run_cached_gate() {
 
 resolve_contract_root() {
   if [ -n "$CONTRACT_ROOT" ]; then
-    return
+    if contract_root_is_complete "$CONTRACT_ROOT"; then
+      return
+    fi
+    printf 'ERROR: configured mindscape-ai-cloud contract source is incomplete: %s\n' \
+      "$CONTRACT_ROOT" >&2
+    exit 1
   fi
-  if [ -d "$REPO_ROOT/.contract-sources/mindscape-ai-cloud" ]; then
+  if contract_root_is_complete "$REPO_ROOT/.contract-sources/mindscape-ai-cloud"; then
     CONTRACT_ROOT="$REPO_ROOT/.contract-sources/mindscape-ai-cloud"
     return
   fi
-  if [ -d "$REPO_ROOT/../mindscape-ai-cloud" ]; then
+  if contract_root_is_complete "$REPO_ROOT/../mindscape-ai-cloud"; then
     CONTRACT_ROOT="$REPO_ROOT/../mindscape-ai-cloud"
     return
   fi
   printf 'ERROR: canonical mindscape-ai-cloud contract source is unavailable\n' >&2
   exit 1
+}
+
+contract_root_is_complete() {
+  local root="$1"
+  [ -f "$root/scripts/product_semantic_traceability.py" ]
 }
 
 require_clean_git_scope() {
