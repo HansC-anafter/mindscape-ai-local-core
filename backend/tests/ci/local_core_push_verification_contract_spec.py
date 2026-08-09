@@ -20,6 +20,8 @@ def test_push_verifier_owns_required_release_gates() -> None:
         "run_architecture_tests",
         "run_frontend_tests",
         "runtime_secret_disposable_integration.sh",
+        "install.sh",
+        "install.ps1",
         "run_cached_gate",
         "--explain",
         "mindscape.local-core-push-gate.v1",

@@ -210,6 +210,8 @@ surfaces:
       - scripts/maintenance/check_runtime_read_path_budget.py
       - scripts/ci/compose_topology/**
       - scripts/ci/runtime_secret_disposable_integration.sh
+      - install.ps1
+      - install.sh
       - scripts/start.ps1
       - scripts/start.sh
       - scripts/compose.ps1

@@ -8,19 +8,25 @@
     Custom directory name for installation (default: mindscape-ai-local-core)
 .PARAMETER Branch
     Git branch to clone (default: master)
+.PARAMETER Update
+    Update an existing checkout, then run the normal setup and startup flow
 .EXAMPLE
     irm https://raw.githubusercontent.com/HansC-anafter/mindscape-ai-local-core/master/install.ps1 | iex
 .EXAMPLE
     irm https://... | iex -Dir my-project
+.EXAMPLE
+    .\install.ps1 -Update
 #>
 
 param(
     [string]$Dir = "mindscape-ai-local-core",
-    [string]$Branch = "master"
+    [string]$Branch = "master",
+    [switch]$Update
 )
 
 $ErrorActionPreference = "Stop"
 $RepoUrl = "https://github.com/HansC-anafter/mindscape-ai-local-core.git"
+$DirWasProvided = $PSBoundParameters.ContainsKey("Dir")
 
 Write-Host ""
 Write-Host "-----------------------------------------------------" -ForegroundColor Cyan
@@ -126,14 +132,38 @@ if ((Test-Command "npm") -and -not (Test-Command "gemini")) {
 
 Write-Host ""
 
+# In update mode, default to the current checkout when invoked from its root.
+if ($Update -and -not $DirWasProvided -and (Test-Path ".git") -and (Test-Path "scripts\start.ps1")) {
+    $Dir = (Get-Location).Path
+}
+
+if ($Update -and -not (Test-Path $Dir)) {
+    Write-Host "ERROR: Update target '$Dir' does not exist." -ForegroundColor Red
+    Write-Host "Run this command from the repository root or pass -Dir with an existing checkout." -ForegroundColor Gray
+    exit 1
+}
+
 # Check if directory exists
 if (Test-Path $Dir) {
-    Write-Host "WARNING: Directory '$Dir' already exists." -ForegroundColor Yellow
-    $response = Read-Host "Update existing installation? (y/N)"
-    if ($response -match "^[Yy]") {
+    $shouldUpdate = $Update
+    if (-not $Update) {
+        Write-Host "WARNING: Directory '$Dir' already exists." -ForegroundColor Yellow
+        $response = Read-Host "Update existing installation? (y/N)"
+        $shouldUpdate = $response -match "^[Yy]"
+    }
+
+    if ($shouldUpdate) {
         Write-Host "Updating existing installation..." -ForegroundColor Cyan
         Set-Location $Dir
-        git pull origin $Branch
+        if (-not (Test-Path ".git")) {
+            Write-Host "ERROR: '$Dir' is not a Git checkout." -ForegroundColor Red
+            exit 1
+        }
+        git pull --ff-only origin $Branch
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "ERROR: Fast-forward update failed. Resolve the Git state before retrying." -ForegroundColor Red
+            exit $LASTEXITCODE
+        }
     } else {
         Write-Host "Installation cancelled." -ForegroundColor Yellow
         exit 0
@@ -141,6 +171,10 @@ if (Test-Path $Dir) {
 } else {
     Write-Host "Cloning repository..." -ForegroundColor Cyan
     git clone --branch $Branch $RepoUrl $Dir
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "ERROR: Repository clone failed." -ForegroundColor Red
+        exit $LASTEXITCODE
+    }
     Set-Location $Dir
 }
 
