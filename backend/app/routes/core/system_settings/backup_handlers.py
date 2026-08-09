@@ -306,6 +306,23 @@ async def verify_local_runtime_backup(request: Request, body: VerifyBackupReques
     return await _call_backup_job(args, timeout_seconds=1205)
 
 
+@router.post("/backups/local-runtime/maintenance/verify-prune")
+async def verify_and_prune_local_runtime_backup(
+    request: Request,
+    body: VerifyBackupRequest = VerifyBackupRequest(),
+):
+    if not _is_localhost(request):
+        raise HTTPException(
+            status_code=403,
+            detail="Backup maintenance controls are restricted to localhost",
+        )
+    config = _load_config()
+    args = _job_args("verify-prune", config)
+    if body.backup_dir:
+        args.extend(["--backup-dir", body.backup_dir])
+    return await _call_backup_job(args, timeout_seconds=1205)
+
+
 @router.post("/backups/local-runtime/google-drive/prepare")
 async def prepare_google_drive_runtime_sync(
     request: Request,

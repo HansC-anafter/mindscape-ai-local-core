@@ -319,3 +319,41 @@ def command_verify(args: argparse.Namespace) -> dict[str, Any]:
         "stdout": result.stdout,
         "stderr": result.stderr,
     }
+
+
+def command_verify_prune(args: argparse.Namespace) -> dict[str, Any]:
+    backup_root = resolve_backup_root(args.output_dir)
+    cmd = add_policy_flags(
+        [
+            "python3",
+            str(POLICY_SCRIPT),
+            "verify-prune",
+            "--output-dir",
+            str(backup_root),
+        ],
+        args,
+    )
+    if args.backup_dir:
+        cmd.extend(["--backup-dir", str(Path(args.backup_dir).expanduser())])
+    result = subprocess.run(
+        cmd,
+        cwd=REPO_ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=args.timeout_seconds,
+    )
+    try:
+        payload = json.loads(result.stdout or "{}")
+    except Exception:
+        payload = {}
+    payload.update(
+        {
+            "success": result.returncode == 0 and payload.get("success", False),
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "command": cmd,
+        }
+    )
+    return payload

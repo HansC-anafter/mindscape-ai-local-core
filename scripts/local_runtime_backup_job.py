@@ -65,6 +65,7 @@ def _sync_dependency_overrides() -> None:
     _parser.command_plan = command_plan
     _parser.command_postgres_status = command_postgres_status
     _parser.command_verify = command_verify
+    _parser.command_verify_prune = command_verify_prune
     _parser.command_google_drive_status = command_google_drive_status
     _parser.command_prepare_google_drive = command_prepare_google_drive
 
@@ -209,6 +210,11 @@ def command_postgres_status(args: argparse.Namespace) -> dict[str, Any]:
 def command_verify(args: argparse.Namespace) -> dict[str, Any]:
     _sync_dependency_overrides()
     return _commands.command_verify(args)
+
+
+def command_verify_prune(args: argparse.Namespace) -> dict[str, Any]:
+    _sync_dependency_overrides()
+    return _commands.command_verify_prune(args)
 
 
 def build_parser() -> argparse.ArgumentParser:

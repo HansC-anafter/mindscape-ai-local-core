@@ -15,7 +15,10 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from local_runtime_incremental_backup import (  # noqa: E402
     BYTES_PER_GB,
+    build_config,
     build_plan,
+    dir_size_bytes,
+    list_wal_segments,
     prune_incremental,
     run_policy,
     verify_incremental_dir,
@@ -54,7 +57,63 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("backup_dir")
     verify.add_argument("--restore-drill", action="store_true")
 
+    verify_prune = subparsers.add_parser("verify-prune")
+    add_policy_options(verify_prune)
+    verify_prune.add_argument("--backup-dir")
+
     return parser
+
+
+def verify_and_prune(args: argparse.Namespace) -> dict:
+    """Verify the retained recovery chain before pruning obsolete snapshots/WAL."""
+
+    config = build_config(args)
+    primary_root = config["primary_root"]
+    wal_root = config["wal_archive_root"]
+    if args.backup_dir:
+        protected = Path(args.backup_dir).expanduser().resolve()
+    else:
+        manifests = sorted(
+            primary_root.glob("*/manifest.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not manifests:
+            raise SystemExit(f"No backup manifest found under {primary_root}")
+        protected = manifests[0].parent.resolve()
+    if not protected.joinpath("manifest.json").is_file():
+        raise SystemExit(f"Backup manifest not found: {protected}")
+
+    verification = verify_incremental_dir(protected)
+    if not verification.get("success"):
+        raise SystemExit(f"Backup verification failed: {protected}")
+
+    before_segments = list_wal_segments(wal_root)
+    before_bytes = dir_size_bytes(wal_root)
+    pruned = prune_incremental(
+        primary_root,
+        config["retention_local_count"],
+        protected,
+        wal_root=wal_root,
+    )
+    after_segments = list_wal_segments(wal_root)
+    after_bytes = dir_size_bytes(wal_root)
+    return {
+        "success": True,
+        "verified_backup_dir": str(protected),
+        "verification": verification,
+        "retention_local_count": config["retention_local_count"],
+        "wal_archive_dir": str(wal_root),
+        "before": {
+            "wal_segment_count": len(before_segments),
+            "wal_archive_bytes": before_bytes,
+        },
+        "after": {
+            "wal_segment_count": len(after_segments),
+            "wal_archive_bytes": after_bytes,
+        },
+        "pruned": pruned,
+    }
 
 
 def main() -> int:
@@ -66,6 +125,8 @@ def main() -> int:
         payload = run_policy(args)
     elif args.command == "verify":
         payload = verify_incremental_dir(Path(args.backup_dir), restore_drill=args.restore_drill)
+    elif args.command == "verify-prune":
+        payload = verify_and_prune(args)
     else:
         parser.error(f"Unsupported command: {args.command}")
 

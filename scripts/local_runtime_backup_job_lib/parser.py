@@ -15,6 +15,7 @@ from .commands import (
     command_start,
     command_status,
     command_verify,
+    command_verify_prune,
 )
 from .google_drive import command_google_drive_status, command_prepare_google_drive
 
@@ -66,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--backup-dir")
     verify.add_argument("--timeout-seconds", type=int, default=1200)
 
+    verify_prune = subparsers.add_parser("verify-prune")
+    add_common(verify_prune)
+    verify_prune.add_argument("--backup-dir")
+    verify_prune.add_argument("--timeout-seconds", type=int, default=1200)
+
     google_drive_status = subparsers.add_parser("google-drive-status")
     add_common(google_drive_status)
 
@@ -95,6 +101,8 @@ def main() -> int:
             payload = command_postgres_status(args)
         elif args.command == "verify":
             payload = command_verify(args)
+        elif args.command == "verify-prune":
+            payload = command_verify_prune(args)
         elif args.command == "google-drive-status":
             payload = command_google_drive_status(args)
         elif args.command == "prepare-google-drive":

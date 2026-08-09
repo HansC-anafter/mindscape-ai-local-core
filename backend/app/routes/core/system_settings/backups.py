@@ -36,6 +36,7 @@ from .backup_handlers import (
     start_local_runtime_backup,
     update_local_runtime_backup_config,
     verify_local_runtime_backup,
+    verify_and_prune_local_runtime_backup,
 )
 from .backup_models import (
     AVAILABLE_MIRROR_SCOPES,
@@ -114,5 +115,6 @@ __all__ = [
     "get_latest_local_runtime_backup_job",
     "get_local_runtime_backup_job",
     "verify_local_runtime_backup",
+    "verify_and_prune_local_runtime_backup",
     "prepare_google_drive_runtime_sync",
 ]
