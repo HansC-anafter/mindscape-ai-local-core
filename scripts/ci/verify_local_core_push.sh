@@ -69,8 +69,22 @@ cd "$REPO_ROOT"
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     printf 'ERROR: required command is unavailable: %s\n' "$1" >&2
+    printf 'HINT: install %s and ensure it is on PATH.\n' "$1" >&2
     exit 1
   fi
+}
+
+fail_with_hint() {
+  local msg="$1"
+  local hint="$2"
+  local details="${3:-}"
+
+  printf '\nERROR: %s\n' "$msg" >&2
+  if [ -n "$details" ]; then
+    printf '%s\n' "$details" >&2
+  fi
+  printf 'HINT: %s\n' "$hint" >&2
+  exit 1
 }
 
 path_fingerprint() {
@@ -87,6 +101,7 @@ run_cached_gate() {
   local label="$2"
   local fingerprint="$3"
   local check_receipt="$CHECK_RECEIPT_DIR/$gate_id-$fingerprint.receipt"
+  local -a gate_cmd=( "$@" )
   shift 3
   if [ "$FORCE" -eq 0 ] && [ -f "$check_receipt" ] \
       && grep -Fxq 'status=passed' "$check_receipt"; then
@@ -95,7 +110,11 @@ run_cached_gate() {
     return
   fi
   printf '\n==> %s\n' "$label"
-  "$@"
+  if ! "${gate_cmd[@]}"; then
+    printf '\nERROR: gate failed: %s\n' "$label" >&2
+    printf 'HINT: rerun this gate command directly for detailed traceback:\n  %s\n' "${gate_cmd[*]}" >&2
+    exit 1
+  fi
   mkdir -p "$CHECK_RECEIPT_DIR"
   umask 077
   {
@@ -111,9 +130,10 @@ resolve_contract_root() {
     if contract_root_is_complete "$CONTRACT_ROOT"; then
       return
     fi
-    printf 'ERROR: configured mindscape-ai-cloud contract source is incomplete: %s\n' \
-      "$CONTRACT_ROOT" >&2
-    exit 1
+    fail_with_hint \
+      "Configured contract source is incomplete" \
+      "Set CONTRACT_ROOT to a complete checkout containing scripts/product_semantic_traceability.py, then rerun with --contract-root." \
+      "Configured: $CONTRACT_ROOT"
   fi
   if contract_root_is_complete "$REPO_ROOT/.contract-sources/mindscape-ai-cloud"; then
     CONTRACT_ROOT="$REPO_ROOT/.contract-sources/mindscape-ai-cloud"
@@ -123,8 +143,9 @@ resolve_contract_root() {
     CONTRACT_ROOT="$REPO_ROOT/../mindscape-ai-cloud"
     return
   fi
-  printf 'ERROR: canonical mindscape-ai-cloud contract source is unavailable\n' >&2
-  exit 1
+  fail_with_hint \
+    "Canonical mindscape-ai-cloud contract source is unavailable" \
+    "Initialize a local contract source at one of: .contract-sources/mindscape-ai-cloud or ../mindscape-ai-cloud."
 }
 
 contract_root_is_complete() {
@@ -136,13 +157,17 @@ require_clean_git_scope() {
   local status_output stash_output worktree_count
   status_output="$(git status --porcelain --untracked-files=all)"
   if [ -n "$status_output" ]; then
-    printf 'ERROR: push verification requires a clean worktree\n%s\n' "$status_output" >&2
-    exit 1
+    fail_with_hint \
+      "Push verification requires a clean worktree" \
+      "Commit/stash or discard local changes, then rerun verify/push." \
+      "$status_output"
   fi
   stash_output="$(git stash list)"
   if [ -n "$stash_output" ]; then
-    printf 'ERROR: push verification requires every stash to be resolved or classified\n%s\n' "$stash_output" >&2
-    exit 1
+    fail_with_hint \
+      "Push verification requires every stash to be resolved or classified" \
+      "Review `git stash list`, apply/drop unresolved stashes, then rerun." \
+      "$stash_output"
   fi
   if [ "${LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK:-0}" = "1" ]; then
     printf 'WARNING: skipping resolved worktree-count verification due LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK=1\n' >&2
@@ -150,9 +175,10 @@ require_clean_git_scope() {
   fi
   worktree_count="$(git worktree list --porcelain | grep -c '^worktree ')"
   if [ "$worktree_count" -ne 1 ]; then
-    printf 'ERROR: push verification requires one resolved Local Core worktree; found %s\n' "$worktree_count" >&2
-    git worktree list >&2
-    exit 1
+    fail_with_hint \
+      "Push verification requires one resolved Local Core worktree" \
+      "Please keep a single worktree for push verification; for temporary bypass use LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK=1." \
+      "Found worktree_count=${worktree_count}"
   fi
 }
 
@@ -161,12 +187,14 @@ reject_secret_literals() {
   high_confidence_pattern='sk-[a-zA-Z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|gh[po]_[a-zA-Z0-9]{36}|xox[bp]-[0-9]|PRIVATE KEY'
   high_confidence_pattern="${high_confidence_pattern}-----"
   if git diff -U0 "$BASE_FULL..$HEAD_FULL" | grep -iE "$high_confidence_pattern" >/dev/null; then
-    printf 'ERROR: high-confidence credential literal detected in push range\n' >&2
-    exit 1
+    fail_with_hint \
+      "High-confidence credential literal detected in push range" \
+      "Remove secrets and rebase/push; use environment variables or secure vault instead."
   fi
   if git diff --name-only "$BASE_FULL..$HEAD_FULL" | grep -Eq '(^|/)\.env$'; then
-    printf 'ERROR: .env file detected in push range\n' >&2
-    exit 1
+    fail_with_hint \
+      "'.env' file detected in push range" \
+      "Do not include .env in commits; add it to excludes and rework commit history if needed."
   fi
 }
 
@@ -259,15 +287,19 @@ resolve_contract_root
 
 PYTHON_BIN="${LOCAL_CORE_VERIFICATION_PYTHON:-$REPO_ROOT/.venv/bin/python}"
 if [ ! -x "$PYTHON_BIN" ]; then
-  printf 'ERROR: verification Python is unavailable: %s\n' "$PYTHON_BIN" >&2
-  exit 1
+  fail_with_hint \
+    "Verification Python is unavailable" \
+    "Install requirements or set LOCAL_CORE_VERIFICATION_PYTHON to a valid executable." \
+    "Current setting: $PYTHON_BIN"
 fi
 
 BASE_FULL="$(git rev-parse "$BASE_SHA^{commit}")"
 HEAD_FULL="$(git rev-parse "$HEAD_SHA^{commit}")"
 if ! git merge-base --is-ancestor "$BASE_FULL" "$HEAD_FULL"; then
-  printf 'ERROR: base commit is not an ancestor of head: %s -> %s\n' "$BASE_FULL" "$HEAD_FULL" >&2
-  exit 1
+  fail_with_hint \
+    "Base commit is not ancestor of head" \
+    "Check base/head SHA arguments; example: --base-sha origin/master --head-sha HEAD." \
+    "Current base=$BASE_FULL head=$HEAD_FULL"
 fi
 
 require_clean_git_scope
