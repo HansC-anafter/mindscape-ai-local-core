@@ -149,16 +149,16 @@ This was fixed to self-heal on startup by this repository (`docker/postgres/boot
 If you still see the error after pulling the latest update, restart the primary PostgreSQL container so the reconciliation runs again:
 
 ```bash
-./scripts/compose.sh restart postgres
-./scripts/compose.sh --profile ha up -d postgres-replica
+./scripts/compose.sh up -d --force-recreate postgres
+./scripts/compose.sh --profile ha up -d --force-recreate postgres-replica
 ./scripts/compose.sh logs --tail=120 postgres-replica
 ```
 
 On Windows PowerShell:
 
 ```powershell
-.\scripts\compose.ps1 restart postgres
-.\scripts\compose.ps1 --profile ha up -d postgres-replica
+.\scripts\compose.ps1 up -d --force-recreate postgres
+.\scripts\compose.ps1 --profile ha up -d --force-recreate postgres-replica
 .\scripts\compose.ps1 logs --tail 120 postgres-replica
 ```
 

@@ -26,6 +26,8 @@ services:
     volumes:
       - postgres-recovery-drill-primary-data:/var/lib/postgresql/data
       - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+      - ../postgres/ensure-replication-hba.sh:/docker-entrypoint-initdb.d/01-ensure-replication-hba.sh:ro
+      - ../postgres/ensure-replication-hba.sh:/opt/mindscape/ensure-replication-hba.sh:ro
       - ../postgres/bootstrap-postgres-entrypoint.sh:/opt/mindscape/bootstrap-postgres-entrypoint.sh:ro
     networks: [postgres-recovery-drill]
     healthcheck:

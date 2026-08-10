@@ -8,6 +8,13 @@ vector_runtime_secret_file="${POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE:-/run/secret
 pgdata_dir="${PGDATA:-/var/lib/postgresql/data}"
 
 configure_replication_hba() {
+  local helper="/opt/mindscape/ensure-replication-hba.sh"
+  if [ -x "$helper" ]; then
+    sh "$helper"
+    psql --username "${POSTGRES_USER}" --dbname "${core_db}" -c 'SELECT pg_reload_conf();'
+    return
+  fi
+
   local pg_hba_file="${pgdata_dir}/pg_hba.conf"
   local replication_user="${POSTGRES_USER:-mindscape}"
 
