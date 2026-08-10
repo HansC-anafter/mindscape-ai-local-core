@@ -2,6 +2,9 @@ services:
   postgres-recovery-drill-primary:
     profiles: ["postgres-recovery-drill"]
     image: mindscape-ai-local-core-postgres:pg16
+    entrypoint:
+      - /bin/sh
+      - /opt/mindscape/bootstrap-postgres-entrypoint.sh
     labels:
       com.mindscape.recovery-drill: "true"
       com.mindscape.recovery-role: "primary"
@@ -23,6 +26,7 @@ services:
     volumes:
       - postgres-recovery-drill-primary-data:/var/lib/postgresql/data
       - postgres-recovery-drill-receipts:/var/lib/mindscape/recovery-drill
+      - ../postgres/bootstrap-postgres-entrypoint.sh:/opt/mindscape/bootstrap-postgres-entrypoint.sh:ro
     networks: [postgres-recovery-drill]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U mindscape -d mindscape_core"]
