@@ -132,7 +132,7 @@ resolve_contract_root() {
       return
     fi
     fail_with_hint \
-      "Configured contract source is incomplete" \
+      "configured mindscape-ai-cloud contract source is incomplete" \
       "Set CONTRACT_ROOT to a complete checkout containing scripts/product_semantic_traceability.py, then rerun with --contract-root." \
       "Configured: $CONTRACT_ROOT"
   fi
