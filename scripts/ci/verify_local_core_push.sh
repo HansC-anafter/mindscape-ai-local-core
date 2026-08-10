@@ -101,8 +101,9 @@ run_cached_gate() {
   local label="$2"
   local fingerprint="$3"
   local check_receipt="$CHECK_RECEIPT_DIR/$gate_id-$fingerprint.receipt"
-  local -a gate_cmd=( "$@" )
+  local -a gate_cmd
   shift 3
+  gate_cmd=( "$@" )
   if [ "$FORCE" -eq 0 ] && [ -f "$check_receipt" ] \
       && grep -Fxq 'status=passed' "$check_receipt"; then
     printf '\n==> %s\n' "$label"
