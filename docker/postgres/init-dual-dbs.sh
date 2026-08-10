@@ -5,6 +5,24 @@ core_db="${POSTGRES_CORE_DB:-mindscape_core}"
 vector_db="${POSTGRES_VECTOR_DB:-mindscape_vectors}"
 vector_runtime_user="${POSTGRES_VECTOR_RUNTIME_USER:-mindscape_vector_runtime}"
 vector_runtime_secret_file="${POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE:-/run/secrets/postgres_vector_runtime_password}"
+pgdata_dir="${PGDATA:-/var/lib/postgresql/data}"
+
+configure_replication_hba() {
+  local pg_hba_file="${pgdata_dir}/pg_hba.conf"
+  local replication_user="${POSTGRES_USER:-mindscape}"
+
+  if [ ! -f "$pg_hba_file" ]; then
+    return
+  fi
+
+  if ! grep -Eq "^[[:space:]]*host[[:space:]]+replication[[:space:]]+${replication_user}[[:space:]]+0\\.0\\.0\\.0/0[[:space:]]+" "$pg_hba_file"; then
+    printf 'host replication %s 0.0.0.0/0 scram-sha-256\n' "$replication_user" >> "$pg_hba_file"
+  fi
+  if ! grep -Eq "^[[:space:]]*host[[:space:]]+replication[[:space:]]+${replication_user}[[:space:]]+::/0[[:space:]]+" "$pg_hba_file"; then
+    printf 'host replication %s ::/0 scram-sha-256\n' "$replication_user" >> "$pg_hba_file"
+  fi
+  psql --username "${POSTGRES_USER}" --dbname "${core_db}" -c 'SELECT pg_reload_conf();'
+}
 if [ -r "${vector_runtime_secret_file}" ]; then
   vector_runtime_secret=""
   IFS= read -r vector_runtime_secret < "${vector_runtime_secret_file}" || true
@@ -22,6 +40,9 @@ if [ -r "${vector_runtime_secret_file}" ]; then
 else
   vector_runtime_secret="${POSTGRES_VECTOR_RUNTIME_PASSWORD:?POSTGRES_VECTOR_RUNTIME_PASSWORD_FILE is required}"
 fi
+
+configure_replication_hba
+
 if [ -z "${vector_runtime_secret}" ] || [ "${#vector_runtime_secret}" -gt 4096 ] ||
     [[ "${vector_runtime_secret}" == *$'\r'* || "${vector_runtime_secret}" == *$'\n'* ]]; then
   echo "[runtime-secret] vector runtime secret is invalid" >&2

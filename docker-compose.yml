@@ -834,6 +834,19 @@ services:
       - sh
       - -lc
       - |
+        set -eu
+        postgres_bin="$(command -v postgres || true)"
+        if [ -z "$$postgres_bin" ]; then
+          if [ -x /usr/lib/postgresql/"$${PG_MAJOR:-16}"/bin/postgres ]; then
+            postgres_bin=/usr/lib/postgresql/"$${PG_MAJOR:-16}"/bin/postgres
+          elif [ -x /usr/local/bin/postgres ]; then
+            postgres_bin=/usr/local/bin/postgres
+          else
+            printf 'ERROR: PostgreSQL executable unavailable in replica container\n' >&2
+            printf 'HINT: verify image build contains PostgreSQL binaries (pgvector/pgvector) and rebuild local image.\n' >&2
+            exit 1
+          fi
+        fi
         if [ ! -s "$$PGDATA/PG_VERSION" ]; then
           rm -rf "$$PGDATA"/*
           until pg_isready -h postgres -p 5432 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"; do sleep 2; done
@@ -841,7 +854,7 @@ services:
           chmod 0600 /tmp/pgpass
           PGPASSFILE=/tmp/pgpass pg_basebackup -h postgres -p 5432 -U "$$POSTGRES_USER" -D "$$PGDATA" -Fp -Xs -P -R
         fi
-        exec postgres -c hot_standby=on -c shared_buffers=256MB -c max_wal_size=2GB
+        exec $$postgres_bin -c hot_standby=on -c shared_buffers=256MB -c max_wal_size=2GB
     ports:
       - "127.0.0.1:5434:5432"
     environment:
