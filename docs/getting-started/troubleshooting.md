@@ -136,6 +136,34 @@ ${LOCAL_CORE_POSTGRES_HOST_DIR:-./data/postgres}
 
 Delete this directory only after creating and verifying a backup.
 
+### HA replica startup on upgraded installs
+
+On older installations that already have existing PostgreSQL data, enabling `ha` can fail with:
+
+```text
+FATAL: no pg_hba.conf entry for replication connection
+```
+
+This was fixed to self-heal on startup by this repository (`docker/postgres/bootstrap-postgres-entrypoint.sh`), which ensures replication `pg_hba.conf` entries exist before PostgreSQL starts.
+
+If you still see the error after pulling the latest update, restart the primary PostgreSQL container so the reconciliation runs again:
+
+```bash
+./scripts/compose.sh restart postgres
+./scripts/compose.sh --profile ha up -d postgres-replica
+./scripts/compose.sh logs --tail=120 postgres-replica
+```
+
+On Windows PowerShell:
+
+```powershell
+.\scripts\compose.ps1 restart postgres
+.\scripts\compose.ps1 --profile ha up -d postgres-replica
+.\scripts\compose.ps1 logs --tail 120 postgres-replica
+```
+
+If this still persists, inspect `pg_hba.conf` for both `0.0.0.0/0` and `::/0` replication entries for `POSTGRES_USER` and restart `postgres-replica` after repair.
+
 ## Provider Keys Missing
 
 The stack can start with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` unset. Features that need those providers become available after keys are configured.
