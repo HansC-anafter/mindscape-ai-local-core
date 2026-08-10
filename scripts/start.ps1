@@ -2,7 +2,8 @@
 # This script checks Docker availability and starts services
 
 param(
-    [switch]$SkipCheck
+    [switch]$SkipCheck,
+    [switch]$FullStartup
 )
 
 # Check execution policy and provide helpful message if blocked
@@ -38,6 +39,35 @@ if (-not (Test-Path Env:OPENAI_API_KEY)) {
 if (-not (Test-Path Env:ANTHROPIC_API_KEY)) {
     $env:ANTHROPIC_API_KEY = ""
 }
+
+# Full profile startup is opt-in for users who want every configured optional service
+# in one command while still allowing custom COMPOSE_PROFILES additions from environment.
+$baseProfiles = @()
+if ($env:COMPOSE_PROFILES) {
+    $baseProfiles = ($env:COMPOSE_PROFILES -split ',' | ForEach-Object { $_.Trim() }) | Where-Object { $_ }
+}
+$fullStartupProfiles = @(
+    "control-plane",
+    "spillover",
+    "ha",
+    "ocr",
+    "legacy-xtts",
+    "postgres-recovery-drill",
+    "runtime-db-observer"
+)
+$requestedProfiles = @()
+if ($FullStartup) {
+    $requestedProfiles = @($baseProfiles + $fullStartupProfiles) | Select-Object -Unique
+} else {
+    $requestedProfiles = $baseProfiles
+}
+
+# Build --profile args for this compose call in deterministic order.
+$composeUpArgs = @()
+foreach ($profile in $requestedProfiles) {
+    $composeUpArgs += @("--profile", $profile)
+}
+$composeUpArgs += @("up", "-d")
 
 # Helper function to execute docker compose commands with proper error handling
 function Invoke-DockerCompose {
@@ -498,7 +528,12 @@ Write-Host ""
 
 # Start services
 Write-Host "Building and starting containers..." -ForegroundColor Cyan
-$exitCode = Invoke-DockerCompose -Arguments @("up", "-d")
+if ($FullStartup) {
+    Write-Host "Running full-stack startup profile set: $($requestedProfiles -join ", ")" -ForegroundColor Cyan
+} elseif ($requestedProfiles.Count -gt 0) {
+    Write-Host "Running compose with COMPOSE_PROFILES: $($requestedProfiles -join ", ")" -ForegroundColor Cyan
+}
+$exitCode = Invoke-DockerCompose -Arguments $composeUpArgs
 
 if ($exitCode -ne 0) {
     Write-Host ""

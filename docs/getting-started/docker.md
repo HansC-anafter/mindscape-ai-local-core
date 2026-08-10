@@ -73,6 +73,12 @@ The Windows helper checks Docker, prepares Windows host companions when availabl
 .\scripts\start.ps1
 ```
 
+Start the full official stack (all optional profiles) in one command:
+
+```powershell
+.\scripts\start.ps1 -FullStartup
+```
+
 Use the Compose facade for a container-only smoke test. Use the startup helper when you need the local host companions that are part of this repository's startup flow. Bare `docker compose` does not decrypt the Windows DPAPI store and is not a supported product startup path.
 
 ## Access
@@ -102,12 +108,23 @@ Optional profiles:
 
 - `control-plane`: starts `backend-control` on host port `8220` by default
 - `ocr`: starts `ocr-service` on host port `8001`
+- `spillover`: starts `runner-spillover`
+- `ha`: starts `postgres-replica`
+- `legacy-xtts`: starts `xtts-service`
+- `postgres-recovery-drill`: starts `postgres-recovery-drill-*`
+- `runtime-db-observer`: starts `postgres-signal-observer`
 
 Examples:
 
 ```bash
 ./scripts/compose.sh --profile control-plane up -d
 ./scripts/compose.sh --profile ocr up -d
+```
+
+To start the same full set as `.\scripts\start.ps1 -FullStartup` from Linux/macOS container-only path:
+
+```bash
+./scripts/compose.sh --profile control-plane --profile spillover --profile ha --profile ocr --profile legacy-xtts --profile postgres-recovery-drill --profile runtime-db-observer up -d
 ```
 
 ## Configuration
