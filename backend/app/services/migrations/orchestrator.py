@@ -23,12 +23,11 @@ from .runtime_locations import (
     append_runtime_version_locations,
     configure_runtime_version_locations,
 )
+from .orchestrator_host_resource_contract_adapter import (
+    evaluate_host_resource_schema_contract,
+)
 from .runtime_catalog_integrity_facade import resolve_runtime_catalog_snapshot
 from .validator import MigrationValidator
-from app.services.host_resources.schema_readiness import (
-    REQUIRED_REVISION as HOST_RESOURCE_REQUIRED_REVISION,
-    check_host_resource_schema_readiness,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -163,36 +162,11 @@ class MigrationOrchestrator:
         db_type: str,
         current_revisions: set[str],
     ) -> Dict | None:
-        if db_type != "postgres":
-            return None
         applied_revisions = self._get_applied_revisions(db_type, current_revisions)
-        if HOST_RESOURCE_REQUIRED_REVISION not in applied_revisions:
-            return None
-
-        host_resource_schema = check_host_resource_schema_readiness()
-        if host_resource_schema.get("error"):
-            return {
-                "status": "schema_drift",
-                "error": (
-                    "Could not verify host-resource schema readiness. "
-                    "Migration is required before continuing."
-                ),
-                "host_resource_schema": host_resource_schema,
-            }
-
-        if not host_resource_schema.get("ready", False):
-            return {
-                "status": "schema_drift",
-                "error": (
-                    "Host-resource ledger schema is partially applied. "
-                    f"Revision {HOST_RESOURCE_REQUIRED_REVISION} is in "
-                    "alembic_version, but required host-resource schema objects "
-                    "are missing."
-                ),
-                "host_resource_schema": host_resource_schema,
-            }
-
-        return None
+        return evaluate_host_resource_schema_contract(
+            db_type=db_type,
+            applied_revisions=applied_revisions,
+        )
 
     def _dry_run_host_catalog(self, db_type: str) -> Dict:
         """Plan an isolated host-owned migration catalog without pack metadata."""
