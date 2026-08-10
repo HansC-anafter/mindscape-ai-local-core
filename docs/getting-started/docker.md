@@ -73,7 +73,7 @@ The Windows helper checks Docker, prepares Windows host companions when availabl
 .\scripts\start.ps1
 ```
 
-Start the full official stack (all optional profiles) in one command:
+Start the full official stack (boot-safe runtime and bounded drill profiles) in one command:
 
 ```powershell
 .\scripts\start.ps1 -FullStartup
@@ -111,7 +111,11 @@ Optional profiles:
 - `spillover`: starts `runner-spillover`
 - `ha`: starts `postgres-replica`
 - `legacy-xtts`: starts `xtts-service`
-- `postgres-recovery-drill`: starts `postgres-recovery-drill-*`
+- `postgres-recovery-drill`: starts `postgres-recovery-drill-primary`, `postgres-recovery-drill-standby`, and `pgbouncer-recovery-drill`
+- `postgres-disposable-restore`: starts `postgres-recovery-restore` and `postgres-recovery-restore-app-probe`
+
+`postgres-disposable-restore` is an operator-only profile used by
+`scripts/maintenance/postgres_disposable_restore.py`.
 - `runtime-db-observer`: starts `postgres-signal-observer`
 
 Examples:

@@ -164,6 +164,17 @@ On Windows PowerShell:
 
 If this still persists, inspect `pg_hba.conf` for both `0.0.0.0/0` and `::/0` replication entries for `POSTGRES_USER` and restart `postgres-replica` after repair.
 
+## FullStartup starts `restore_base_pg_version_missing`
+
+If startup fails with `restore_base_pg_version_missing` after running `.\scripts\start.ps1 -FullStartup`, an operator-only disposable restore service was unintentionally included.
+
+`postgres-disposable-restore` is intentionally isolated from the regular startup profile and must be launched only through:
+
+`scripts/maintenance/postgres_disposable_restore.py`
+
+Do not add placeholder `PG_VERSION` directories or disable restore preflights to work around this.
+Update to a build containing the isolated `postgres-disposable-restore` profile, remove stale restore containers if present, and run FullStartup again.
+
 ## Provider Keys Missing
 
 The stack can start with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` unset. Features that need those providers become available after keys are configured.

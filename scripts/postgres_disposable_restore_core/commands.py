@@ -16,6 +16,7 @@ from .receipt import write_restore_receipt
 
 RESTORE_SERVICE = "postgres-recovery-restore"
 APP_PROBE_SERVICE = "postgres-recovery-restore-app-probe"
+RESTORE_PROFILE = "postgres-disposable-restore"
 
 
 def _environment(source: RestoreSource) -> dict[str, str]:
@@ -47,7 +48,7 @@ def _compose(
             "-f",
             str(source.scope.compose_file),
             "--profile",
-            "postgres-recovery-drill",
+            RESTORE_PROFILE,
             *args,
         ],
         check=False,

@@ -93,7 +93,7 @@ services:
       retries: 20
 
   postgres-recovery-restore:
-    profiles: ["postgres-recovery-drill"]
+    profiles: ["postgres-disposable-restore"]
     image: mindscape-ai-local-core-postgres:pg16
     labels:
       com.mindscape.recovery-drill: "true"
@@ -119,7 +119,7 @@ services:
       retries: 720
 
   postgres-recovery-restore-app-probe:
-    profiles: ["postgres-recovery-drill"]
+    profiles: ["postgres-disposable-restore"]
     image: ${LOCAL_CORE_BACKEND_IMAGE:-mindscape-ai-local-core-backend}
     labels:
       com.mindscape.recovery-drill: "true"

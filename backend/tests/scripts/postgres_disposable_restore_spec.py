@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from scripts.postgres_disposable_restore_core.commands import (
+    _compose,
     _critical_database_evidence,
     _environment,
     _readiness_query,
@@ -186,6 +187,36 @@ def test_restore_environment_ignores_unscoped_data_dir_injection(
     )
 
     assert "MINDSCAPE_RECOVERY_RESTORE_DATA_DIR" not in _environment(source)
+
+
+def test_restore_compose_uses_disposable_restore_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = _restore_source(tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs) -> __import__("subprocess").CompletedProcess[str]:
+        calls.append(cmd)
+        return __import__("subprocess").CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout='{"services": {}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(
+        "scripts.postgres_disposable_restore_core.commands.subprocess.run",
+        fake_run,
+    )
+
+    _compose(source, "ps", "--format", "json")
+
+    assert calls
+    command = calls[0]
+    assert "--profile" in command
+    assert command[command.index("--profile") + 1] == "postgres-disposable-restore"
+    assert "postgres-recovery-drill" not in command
 
 
 def test_readiness_timeout_is_not_a_terminal_restore_exception(

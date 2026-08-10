@@ -40,8 +40,10 @@ if (-not (Test-Path Env:ANTHROPIC_API_KEY)) {
     $env:ANTHROPIC_API_KEY = ""
 }
 
-# Full profile startup is opt-in for users who want every configured optional service
-# in one command while still allowing custom COMPOSE_PROFILES additions from environment.
+# Full startup includes boot-safe runtime and bounded drill profiles.
+# Operator-only disposable restore is intentionally excluded because it
+# requires a verified base backup, WAL archive, and recovery target.
+# It must be launched through scripts/maintenance/postgres_disposable_restore.py.
 $baseProfiles = @()
 if ($env:COMPOSE_PROFILES) {
     $baseProfiles = ($env:COMPOSE_PROFILES -split ',' | ForEach-Object { $_.Trim() }) | Where-Object { $_ }
@@ -183,6 +185,42 @@ function Get-DockerComposeStatus {
     }
     
     return ($output -join "`n")
+}
+
+function Get-DockerComposeStatusRecords {
+    $raw = @(
+        docker compose ps --all --format json 2>&1 |
+            Where-Object {
+                $_ -notmatch "level=warning" -and
+                $_ -notmatch "^time="
+            }
+    )
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -or $raw.Count -eq 0) {
+        return @()
+    }
+
+    $text = ($raw -join "`n").Trim()
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return @()
+    }
+
+    try {
+        return @($text | ConvertFrom-Json)
+    } catch {
+        $records = @()
+        foreach ($line in $raw) {
+            if (-not $line.Trim().StartsWith("{")) {
+                continue
+            }
+            try {
+                $records += @($line | ConvertFrom-Json)
+            } catch {
+                continue
+            }
+        }
+        return $records
+    }
 }
 
 # Function to check Docker availability
@@ -546,41 +584,30 @@ if ($exitCode -ne 0) {
     # Check which services failed
     Write-Host "Checking service status..." -ForegroundColor Yellow
 
-    # Get service status using a more reliable method
-    # Use helper function to handle docker compose commands properly
-    $serviceStatus = Get-DockerComposeStatus -UseFormat
-    if ($LASTEXITCODE -ne 0) {
-        # If command failed, try without format to get basic info
-        $serviceStatus = Get-DockerComposeStatus
-    }
-
+    $serviceStatusRecords = Get-DockerComposeStatusRecords
     $failedServices = @()
 
-    # Parse the output line by line (skip header and warning lines)
-    $lines = $serviceStatus -split "`n" | Where-Object {
-        $_ -match "^\w" -and
-        $_ -notmatch "SERVICE" -and
-        $_ -notmatch "level=warning" -and
-        $_ -notmatch "time="
-    }
+    foreach ($record in $serviceStatusRecords) {
+        $serviceName = [string]$record.Service
+        $state = [string]$record.State
+        $health = [string]$record.Health
+        $exitCode = if ($null -eq $record.ExitCode) { 0 } else { [int]$record.ExitCode }
 
-    foreach ($line in $lines) {
-        # Match table format: SERVICE STATE HEALTH
-        if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
-            $serviceName = $matches['service']
-            $state = $matches['state']
-            $health = $matches['health']
-
-            # Check if service failed or is unhealthy
-            if ($state -ne "running" -or $health -eq "unhealthy") {
-                $failedServices += $serviceName
-                Write-Host "  - $serviceName : $state" -ForegroundColor Red
-                if ($health -eq "unhealthy") {
-                    Write-Host "    Health: $health" -ForegroundColor Red
-                }
+        if (
+            $health -eq "unhealthy" -or
+            ($state -eq "exited" -and $exitCode -ne 0) -or
+            ($state -ne "running" -and $state -ne "exited")
+        ) {
+            $failedServices += [PSCustomObject]@{
+                Service = $serviceName
+                State = $state
+                Health = $health
+                ExitCode = $exitCode
             }
         }
     }
+
+    $failedServices = @($failedServices | Sort-Object Service -Unique)
 
     if ($failedServices.Count -gt 0) {
         Write-Host ""
@@ -591,15 +618,17 @@ if ($exitCode -ne 0) {
         Write-Host "Showing logs for failed services..." -ForegroundColor Cyan
         Write-Host ""
         foreach ($service in $failedServices) {
-            Write-Host "=== Logs for $service ===" -ForegroundColor Yellow
+            Write-Host "  - {0}: state={1}, health={2}, exit={3}" -f $service.Service, $service.State, $service.Health, $service.ExitCode -ForegroundColor Red
+            Write-Host ""
+            Write-Host "=== Logs for $($service.Service) ===" -ForegroundColor Yellow
             # Suppress warnings from docker compose (like missing env vars)
-            $logs = docker compose logs --tail=100 $service 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" }
+            $logs = docker compose logs --tail=100 $($service.Service) 2>&1 | Where-Object { $_ -notmatch "level=warning" -and $_ -notmatch "time=" }
             Write-Host $logs
             Write-Host ""
         }
 
         # Special handling for backend service
-        if ($failedServices -contains "backend") {
+        if (($failedServices | ForEach-Object { $_.Service }) -contains "backend") {
             Write-Host "=== Backend Service Troubleshooting ===" -ForegroundColor Cyan
             Write-Host ""
             Write-Host "Common causes for backend startup failure:" -ForegroundColor Yellow
@@ -640,33 +669,12 @@ if ($exitCode -ne 0) {
 # Check if any services are unhealthy after starting
 Start-Sleep -Seconds 3
 # Suppress warnings (like missing env vars) and capture only stdout
-$serviceStatus = Get-DockerComposeStatus -UseFormat
-if ($LASTEXITCODE -ne 0) {
-    # If command failed, try without format to get basic info
-    $serviceStatus = Get-DockerComposeStatus
-}
-
-$unhealthyServices = @()
-
-# Parse the output line by line (skip header and warning lines)
-$lines = $serviceStatus -split "`n" | Where-Object {
-    $_ -match "^\w" -and
-    $_ -notmatch "SERVICE" -and
-    $_ -notmatch "level=warning" -and
-    $_ -notmatch "time="
-}
-
-foreach ($line in $lines) {
-    # Match table format: SERVICE STATE HEALTH
-    if ($line -match "^(?<service>\S+)\s+(?<state>\S+)\s+(?<health>\S*)\s*$") {
-        $serviceName = $matches['service']
-        $health = $matches['health']
-
-        if ($health -eq "unhealthy") {
-            $unhealthyServices += $serviceName
-        }
-    }
-}
+$serviceStatusRecords = Get-DockerComposeStatusRecords
+$unhealthyServices = @(
+    $serviceStatusRecords |
+        Where-Object { [string]$_.Health -eq "unhealthy" } |
+        ForEach-Object { [string]$_.Service }
+)
 
 if ($unhealthyServices.Count -gt 0) {
     Write-Host ""
