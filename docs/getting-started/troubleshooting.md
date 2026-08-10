@@ -175,6 +175,34 @@ If startup fails with `restore_base_pg_version_missing` after running `.\scripts
 Do not add placeholder `PG_VERSION` directories or disable restore preflights to work around this.
 Update to a build containing the isolated `postgres-disposable-restore` profile, remove stale restore containers if present, and run FullStartup again.
 
+## Full startup failure quick map
+
+Use this when `scripts/start.ps1` exits with failed services.
+
+| Symptom | Likely cause | What to run |
+| --- | --- | --- |
+| `restore_base_pg_version_missing` or `restore_base_pg_missing` | `postgres-disposable-restore` was started via `FullStartup` without a valid backup | Upgrade to the latest local-core build, then remove stale disposable restore containers and rerun `.\scripts\start.ps1 -FullStartup`. |
+| `FATAL: no pg_hba.conf entry for replication connection ...` | Upgraded existing PostgreSQL volume lacks replication HBA entries | See the HA replica startup section above. |
+| OCR service does not become healthy on startup | OCR image is stale or readiness probe is blocked | Run `.\scripts\compose.ps1 build --profile ocr ocr-service`, then rerun `.\scripts\start.ps1 -FullStartup`, then check `.\scripts\compose.ps1 logs ocr-service`. |
+| `postgres is restarting` for one of the core services after first start | Service did not become healthy before the first readiness window | Run `.\scripts\compose.ps1 logs --tail=200 <service>` and `.\scripts\compose.ps1 ps` to capture logs and state. |
+
+Example cleanup for stale restore containers (Windows):
+
+```powershell
+.\scripts\compose.ps1 stop postgres-recovery-restore postgres-recovery-restore-app-probe
+.\scripts\compose.ps1 rm -f postgres-recovery-restore postgres-recovery-restore-app-probe
+.\scripts\start.ps1 -FullStartup
+```
+
+On Unix shells:
+
+```bash
+./scripts/compose.sh stop postgres-recovery-restore postgres-recovery-restore-app-probe
+./scripts/compose.sh rm -f postgres-recovery-restore postgres-recovery-restore-app-probe
+./scripts/start.sh -FullStartup
+```
+
+(For Unix, replace `scripts/start.sh` with the correct startup entrypoint used in your environment.)
 ## Provider Keys Missing
 
 The stack can start with `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` unset. Features that need those providers become available after keys are configured.
