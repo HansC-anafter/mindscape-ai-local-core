@@ -28,7 +28,18 @@ HEAD_SENTINEL_TABLES = {
     "20260310183000": "meta_meeting_sessions",
     "20260311000000": "ig_generated_personas",
     "20260319000000": "expert_profiles",
+    "20260325093000": "memory_items",
+    "20260327235959": "character_packages",
     "pc_001_initial": "pc_sessions",
+    "20260528120000": "runner_queue_capacity_snapshots",
+    "20260715023000": "task_summary_projection",
+    "20260622193000": "host_resource_allocation_blueprints",
+    "20260716020000": "pack_install_commit_receipts",
+    "20260726110000": "durable_workflow_release_policies",
+    "20260727120000": "host_runtime_bindings",
+    "20260728020000": "durable_workflow_events",
+    "20260729120000": "access_principals",
+    "20260802100000": "meeting_commands",
 }
 
 
@@ -106,6 +117,9 @@ def main() -> None:
         for head, table in HEAD_SENTINEL_TABLES.items()
         if head in expected_heads and table not in public_tables
     }
+    unmapped_heads = [
+        head for head in expected_heads if head not in HEAD_SENTINEL_TABLES
+    ]
 
     print("ALEMBIC_REPAIR_EXPECTED_HEADS", expected_heads)
     print("ALEMBIC_REPAIR_CURRENT_VERSIONS", current_versions)
@@ -122,9 +136,12 @@ def main() -> None:
             "Refusing to stamp an empty database. Run Alembic upgrade instead."
         )
 
-    if missing_sentinels and not args.force:
+    if (missing_sentinels or unmapped_heads) and not args.force:
+        if unmapped_heads:
+            print("ALEMBIC_REPAIR_UNMAPPED_HEADS", unmapped_heads)
         raise SystemExit(
-            "Refusing to stamp because sentinel tables are missing. Use --force to override."
+            "Refusing to stamp because migration sentinel contract is incomplete. "
+            "Use --force to override."
         )
 
     if not args.apply:
