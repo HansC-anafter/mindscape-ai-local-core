@@ -60,13 +60,16 @@ describe('useWorkspaceVoiceInteractionController', () => {
       }
       state: RecordingState = 'inactive';
       mimeType: string;
+      timeslice: number | undefined;
       ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
       onstop: (() => void) | null = null;
       constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
         this.mimeType = options?.mimeType || 'audio/webm';
         recorders.push(this);
       }
-      start() {
+      start(timeslice?: number) {
+        this.timeslice = timeslice;
         this.state = 'recording';
       }
       stop() {
@@ -78,6 +81,11 @@ describe('useWorkspaceVoiceInteractionController', () => {
       }
     }
     vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    vi.stubGlobal('OfflineAudioContext', class {
+      async decodeAudioData(_buffer: ArrayBuffer) {
+        return { duration: 1, length: 16000 } as AudioBuffer;
+      }
+    });
     const submitVoiceTurn = vi.fn(async (
       _turn: Parameters<WorkspaceInteractionTarget['submitVoiceTurn']>[0],
       _snapshot: Parameters<WorkspaceInteractionTarget['submitVoiceTurn']>[1],
@@ -99,6 +107,7 @@ describe('useWorkspaceVoiceInteractionController', () => {
       expect(screen.getByTestId('voice-state')).toHaveTextContent('recording');
     });
     expect(recorders).toHaveLength(1);
+    expect(recorders[0].timeslice).toBe(1000);
 
     fireEvent.click(screen.getByTestId('voice-stop'));
     await waitFor(() => {
@@ -110,5 +119,62 @@ describe('useWorkspaceVoiceInteractionController', () => {
       language: 'auto',
     });
     expect(trackStop).toHaveBeenCalled();
+  });
+
+  it('returns empty without submitting an undecodable bounded container', async () => {
+    const trackStop = vi.fn();
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: trackStop }],
+        })),
+      },
+    });
+    class FakeMediaRecorder {
+      static isTypeSupported(value: string) {
+        return value === 'audio/webm;codecs=opus';
+      }
+      state: RecordingState = 'inactive';
+      mimeType = 'audio/webm;codecs=opus';
+      ondataavailable: ((event: BlobEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: MediaStream, _options?: MediaRecorderOptions) {}
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({
+          data: new Blob(['container-only'], { type: this.mimeType }),
+        } as BlobEvent);
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    vi.stubGlobal('OfflineAudioContext', class {
+      async decodeAudioData(_buffer: ArrayBuffer) {
+        throw new DOMException('invalid media');
+      }
+    });
+    const submitVoiceTurn = vi.fn();
+
+    render(
+      <WorkspaceInteractionIngressProvider workspaceId="ws_test">
+        <Harness submitVoiceTurn={submitVoiceTurn} />
+      </WorkspaceInteractionIngressProvider>,
+    );
+    fireEvent.click(screen.getByTestId('voice-start'));
+    await waitFor(() => {
+      expect(screen.getByTestId('voice-state')).toHaveTextContent('recording');
+    });
+    fireEvent.click(screen.getByTestId('voice-stop'));
+    await waitFor(() => {
+      expect(screen.getByTestId('voice-state')).toHaveTextContent('empty');
+    });
+
+    expect(submitVoiceTurn).not.toHaveBeenCalled();
+    expect(trackStop).toHaveBeenCalledTimes(1);
   });
 });

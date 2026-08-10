@@ -1,3 +1,5 @@
+import { MicVAD, utils } from '@ricky0123/vad-web';
+
 export type VadSpeechWindow = {
   audioBase64: string;
   mimeType: 'audio/wav';
@@ -15,35 +17,10 @@ export type CreateBrowserVadInput = {
   onError?: (error: Error) => void;
 };
 
-type BrowserVadRuntime = {
-  MicVAD: {
-    new: (options: Record<string, unknown>) => Promise<BrowserVadController>;
-  };
-  utils: {
-    encodeWAV: (
-      audio: Float32Array,
-      format: number,
-      sampleRate: number,
-      channels: number,
-      bitsPerSample: number,
-    ) => ArrayBuffer;
-    arrayBufferToBase64: (buffer: ArrayBuffer) => string;
-  };
-};
-
-function resolveBrowserVadRuntime(): BrowserVadRuntime {
-  const runtime = (globalThis as { mindscapeVadRuntime?: BrowserVadRuntime }).mindscapeVadRuntime;
-  if (!runtime?.MicVAD?.new || !runtime?.utils?.encodeWAV || !runtime?.utils?.arrayBufferToBase64) {
-    throw new Error('browser_vad_runtime_unavailable');
-  }
-  return runtime;
-}
-
 export async function createBrowserVadController(
   input: CreateBrowserVadInput,
 ): Promise<BrowserVadController> {
-  const vad = resolveBrowserVadRuntime();
-  const micVad = await vad.MicVAD.new({
+  const micVad = await MicVAD.new({
     model: 'legacy',
     startOnLoad: false,
     baseAssetPath: '/vad/',
@@ -54,9 +31,9 @@ export async function createBrowserVadController(
     onSpeechStart: () => input.onSpeechStart?.(),
     onSpeechEnd: async (audio: Float32Array) => {
       try {
-        const wavBuffer = vad.utils.encodeWAV(audio, 1, 16000, 1, 16);
+        const wavBuffer = utils.encodeWAV(audio, 1, 16000, 1, 16);
         await input.onSpeechEnd({
-          audioBase64: vad.utils.arrayBufferToBase64(wavBuffer),
+          audioBase64: utils.arrayBufferToBase64(wavBuffer),
           mimeType: 'audio/wav',
         });
       } catch (error) {

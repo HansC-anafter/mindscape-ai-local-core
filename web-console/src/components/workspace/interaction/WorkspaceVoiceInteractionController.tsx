@@ -16,6 +16,9 @@ import {
 import {
   encodeWorkspaceVoiceBlob,
   selectWorkspaceVoiceMimeType,
+  startWorkspaceBoundedVoiceRecorder,
+  type WorkspaceBoundedVoiceRecorderHandle,
+  type WorkspaceBoundedVoiceRecording,
 } from './workspaceBoundedVoiceTransport';
 
 export type WorkspaceVoiceMode = 'bounded' | 'realtime';
@@ -74,17 +77,10 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   const [error, setError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<string | null>(null);
   const [answerText, setAnswerText] = React.useState<string | null>(null);
-  const recorderRef = React.useRef<MediaRecorder | null>(null);
-  const streamRef = React.useRef<MediaStream | null>(null);
-  const chunksRef = React.useRef<Blob[]>([]);
+  const recorderRef = React.useRef<WorkspaceBoundedVoiceRecorderHandle | null>(null);
   const cancelledRef = React.useRef(false);
   const frozenRef = React.useRef<FrozenWorkspaceInteractionTarget | null>(null);
   const realtimeRef = React.useRef<MeetingRealtimeVoiceTransportHandle | null>(null);
-
-  const stopTracks = React.useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-  }, []);
 
   const closeRealtime = React.useCallback(async () => {
     const current = realtimeRef.current;
@@ -94,14 +90,11 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
 
   const releaseResources = React.useCallback(() => {
     cancelledRef.current = true;
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop();
-    }
+    recorderRef.current?.cancel();
     recorderRef.current = null;
-    stopTracks();
     void closeRealtime();
     frozenRef.current = null;
-  }, [closeRealtime, stopTracks]);
+  }, [closeRealtime]);
 
   const cancel = React.useCallback(() => {
     releaseResources();
@@ -171,9 +164,10 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
       setError('media_recorder_mime_unavailable');
       return;
     }
+    let stream: MediaStream | null = null;
     try {
       setState('requesting_permission');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       try {
         assertFrozenTarget(frozen);
       } catch (caught) {
@@ -188,25 +182,15 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
         frozenRef.current = null;
         return;
       }
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const recorder = new MediaRecorder(stream, { mimeType });
-      recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-      recorder.onstop = async () => {
+      const completeRecording = async (
+        recording: WorkspaceBoundedVoiceRecording | null,
+      ) => {
         recorderRef.current = null;
-        stopTracks();
         if (cancelledRef.current) {
           return;
         }
-        const audioBlob = new Blob(chunksRef.current, {
-          type: recorder.mimeType || mimeType,
-        });
-        if (audioBlob.size === 0) {
+        if (!recording) {
+          frozenRef.current = null;
           setState('empty');
           return;
         }
@@ -218,8 +202,8 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
           );
           const result = await submitFrozenVoiceTurn(frozen, {
             clientTurnId: buildClientTurnId(),
-            audioBase64: await encodeWorkspaceVoiceBlob(audioBlob),
-            mimeType: recorder.mimeType || mimeType,
+            audioBase64: await encodeWorkspaceVoiceBlob(recording.audioBlob),
+            mimeType: recording.mimeType,
             language: 'auto',
           });
           setTranscript(result.transcript?.trim() || null);
@@ -258,10 +242,21 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
           frozenRef.current = null;
         }
       };
-      recorder.start();
+      recorderRef.current = startWorkspaceBoundedVoiceRecorder({
+        stream,
+        mimeType,
+        onComplete: completeRecording,
+        onError: (caught) => {
+          recorderRef.current = null;
+          frozenRef.current = null;
+          setState('error');
+          setError(caught.message);
+        },
+      });
+      stream = null;
       setState('recording');
     } catch (caught) {
-      stopTracks();
+      stream?.getTracks().forEach((track) => track.stop());
       frozenRef.current = null;
       const permissionDenied = caught instanceof Error
         && ['NotAllowedError', 'SecurityError'].includes(caught.name);
@@ -271,14 +266,11 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   }, [
     assertFrozenTarget,
     freezeActiveTarget,
-    stopTracks,
     submitFrozenVoiceTurn,
   ]);
 
   const stopBounded = React.useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
-      recorderRef.current.stop();
-    }
+    recorderRef.current?.stop();
   }, []);
 
   const stopRealtime = React.useCallback(async () => {
