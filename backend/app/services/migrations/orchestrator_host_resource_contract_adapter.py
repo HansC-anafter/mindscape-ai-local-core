@@ -23,6 +23,16 @@ def evaluate_host_resource_schema_contract(
         return None
 
     host_resource_schema = check_host_resource_schema_readiness()
+    if not host_resource_schema.get("connectable", False):
+        return {
+            "status": "schema_drift",
+            "error": (
+                "Could not verify host-resource schema readiness from the "
+                "current database connection."
+            ),
+            "host_resource_schema": host_resource_schema,
+        }
+
     if host_resource_schema.get("error"):
         return {
             "status": "schema_drift",

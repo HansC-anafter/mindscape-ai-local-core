@@ -162,6 +162,9 @@ class MigrationOrchestrator:
         db_type: str,
         current_revisions: set[str],
     ) -> Dict | None:
+        if db_type != "postgres":
+            return None
+
         applied_revisions = self._get_applied_revisions(db_type, current_revisions)
         return evaluate_host_resource_schema_contract(
             db_type=db_type,

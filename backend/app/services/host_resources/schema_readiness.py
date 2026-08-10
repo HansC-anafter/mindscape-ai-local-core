@@ -49,6 +49,8 @@ REQUIRED_COLUMNS = {
         "blueprint_id",
         "blueprint_entry_id",
         "applied_at",
+        "updated_by",
+        "updated_at",
     ),
     "host_resource_allocation_blueprints": (
         "blueprint_id",

@@ -320,6 +320,33 @@ def verify_critical_tables():
     return verify_critical_tables_state().state is DatabaseProbeState.READY
 
 
+def verify_host_resource_schema_contract_state() -> dict:
+    """Run host-resource schema contract readiness for startup fail-closed validation."""
+    from backend.app.services.host_resources.schema_readiness import (
+        check_host_resource_schema_readiness,
+    )
+
+    return check_host_resource_schema_readiness()
+
+
+def _print_host_resource_drift(report: dict) -> None:
+    missing_tables = ", ".join(report.get("missing_tables", ()))
+    if missing_tables:
+        print(f"[preflight] Host-resource missing tables: {missing_tables}")
+    missing_indexes = ", ".join(report.get("missing_indexes", ()))
+    if missing_indexes:
+        print(f"[preflight] Host-resource missing indexes: {missing_indexes}")
+    missing_columns = report.get("missing_columns", {})
+    if isinstance(missing_columns, dict):
+        for table_name in sorted(missing_columns):
+            columns = missing_columns[table_name]
+            if columns:
+                print(
+                    f"[preflight] Host-resource missing columns in "
+                    f"{table_name}: {', '.join(sorted(columns))}"
+                )
+
+
 if __name__ == "__main__":
     db_ok = ensure_databases()
     if db_ok:
@@ -351,5 +378,21 @@ if __name__ == "__main__":
             f"state={table_probe.state.value} code={table_probe.failure_code}"
         )
         sys.exit(75)
+
+    host_resource_schema = verify_host_resource_schema_contract_state()
+    if host_resource_schema.get("migration_applied") and not host_resource_schema.get("ready"):
+        print(
+            "[preflight] FATAL: Host-resource schema drift detected after migration."
+        )
+        print(
+            "[preflight] Revision was recorded as applied but required "
+            "host-resource schema objects are missing."
+        )
+        _print_host_resource_drift(host_resource_schema)
+        print(
+            "[preflight] Run repair/reconciliation flow before starting "
+            "application."
+        )
+        sys.exit(1)
 
     print("[preflight] Preflight complete, starting application...")

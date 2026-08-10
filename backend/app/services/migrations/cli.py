@@ -26,6 +26,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _print_schema_drift_details(result: dict) -> None:
+    """Print host-resource schema contract drift details in operator-visible format."""
+    schema = result.get("host_resource_schema")
+    if not isinstance(schema, dict):
+        return
+
+    missing_tables = schema.get("missing_tables", ())
+    if missing_tables:
+        print("Missing tables: " + ", ".join(sorted(missing_tables)))
+
+    missing_indexes = schema.get("missing_indexes", ())
+    if missing_indexes:
+        print("Missing indexes: " + ", ".join(sorted(missing_indexes)))
+
+    missing_columns = schema.get("missing_columns", {})
+    if isinstance(missing_columns, dict):
+        for table_name in sorted(missing_columns):
+            column_names = missing_columns[table_name]
+            if column_names:
+                print(
+                    f"Missing columns in {table_name}: "
+                    + ", ".join(sorted(column_names))
+                )
+
+    error = result.get("error")
+    if error:
+        print(f"Error: {error}")
+
+
 def _build_orchestrator() -> MigrationOrchestrator:
     """Facade seam for canonical runtime migration paths and configuration."""
     capabilities_root = backend_dir / "app" / "capabilities"
@@ -44,7 +73,11 @@ def status_command(db_type: str):
     print(f"Pending Migrations: {result.get('pending_migrations', 0)}")
 
     plan = result.get('migration_plan', {})
-    if plan.get('migrations'):
+    plan_status = plan.get("status")
+    print(f"Status: {plan_status}")
+    if plan_status == "schema_drift":
+        _print_schema_drift_details(plan)
+    elif plan.get('migrations'):
         print("\nPending Migrations:")
         for migration in plan['migrations']:
             print(f"  - {migration.get('capability')}: {migration.get('revision')}")
@@ -62,7 +95,10 @@ def dry_run_command(db_type: str):
     print("=" * 60)
     print(f"Status: {result.get('status')}")
 
-    if result.get('status') == 'success':
+    status = result.get('status')
+    if status == 'schema_drift':
+        _print_schema_drift_details(result)
+    elif status == 'success':
         print(f"Current Revision: {result.get('current_revision', 'None')}")
         migrations = result.get('migrations', [])
         print(f"Pending Migrations: {len(migrations)}")
@@ -101,10 +137,13 @@ def apply_command(
         print(f"Status: {result.get('status')}")
         print(f"Target Revision: {result.get('target_revision', revision)}")
         print(f"Pending Migrations: {result.get('migrations_pending', 0)}")
-        for pending_revision in result.get('revisions', []):
-            print(f"  - {pending_revision}")
-        if result.get('error'):
-            print(f"Error: {result.get('error')}")
+        if result.get('status') == 'schema_drift':
+            _print_schema_drift_details(result)
+        else:
+            for pending_revision in result.get('revisions', []):
+                print(f"  - {pending_revision}")
+            if result.get('error'):
+                print(f"Error: {result.get('error')}")
         return result
     if dry_run:
         return dry_run_command(db_type)
@@ -142,6 +181,8 @@ def apply_command(
         'failed',
     }:
         print(f"Error: {result.get('error')}")
+    elif result.get('status') == 'schema_drift':
+        _print_schema_drift_details(result)
     return result
 
 

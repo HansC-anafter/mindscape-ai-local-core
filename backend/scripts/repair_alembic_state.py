@@ -8,12 +8,19 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
+
+repo_root = Path(__file__).resolve().parents[1]
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
+from app.services.host_resources.schema_readiness import check_host_resource_schema_readiness
 
 
 HEAD_SENTINEL_TABLES = {
@@ -33,7 +40,6 @@ HEAD_SENTINEL_TABLES = {
     "pc_001_initial": "pc_sessions",
     "20260528120000": "runner_queue_capacity_snapshots",
     "20260715023000": "task_summary_projection",
-    "20260622193000": "host_resource_allocation_blueprints",
     "20260716020000": "pack_install_commit_receipts",
     "20260726110000": "durable_workflow_release_policies",
     "20260727120000": "host_runtime_bindings",
@@ -88,6 +94,15 @@ def _fetch_public_tables(conn) -> set[str]:
     return {str(row[0]) for row in rows}
 
 
+class _SingleConnectionStore:
+    def __init__(self, connection):
+        self._connection = connection
+
+    @contextmanager
+    def get_connection(self):
+        yield self._connection
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -111,6 +126,9 @@ def main() -> None:
     with engine.begin() as conn:
         current_versions = _fetch_current_versions(conn)
         public_tables = _fetch_public_tables(conn)
+        host_resource_schema = check_host_resource_schema_readiness(
+            _SingleConnectionStore(conn),
+        )
 
     missing_sentinels = {
         head: table
@@ -127,7 +145,30 @@ def main() -> None:
     if missing_sentinels:
         print("ALEMBIC_REPAIR_MISSING_SENTINELS", missing_sentinels)
 
+    if host_resource_schema.get("migration_applied") and not host_resource_schema.get("ready"):
+        print("ALEMBIC_REPAIR_HOST_RESOURCE_DRIFT", {
+            "migration_applied": host_resource_schema.get("migration_applied"),
+            "ready": host_resource_schema.get("ready"),
+            "missing_tables": host_resource_schema.get("missing_tables", ()),
+            "missing_indexes": host_resource_schema.get("missing_indexes", ()),
+            "missing_columns": host_resource_schema.get("missing_columns", {}),
+        })
+
     if current_versions:
+        if (
+            host_resource_schema.get("migration_applied")
+            and not host_resource_schema.get("ready")
+            and not args.force
+        ):
+            raise SystemExit(
+                "Refusing to treat populated alembic_version as safe. "
+                "Host-resource schema drift detected and requires manual recovery."
+            )
+        if host_resource_schema.get("error") and not args.force:
+            raise SystemExit(
+                "Refusing to proceed because host-resource schema readiness "
+                "could not be validated."
+            )
         print("ALEMBIC_REPAIR_NOOP_ALREADY_STAMPED")
         return
 

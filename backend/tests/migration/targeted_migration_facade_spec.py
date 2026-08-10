@@ -319,3 +319,39 @@ def test_cli_targeted_dry_run_uses_the_same_revision_plan(monkeypatch, capsys) -
     assert "Targeted Dry-Run" in output
     assert "20260715120000" in output
     assert "20260715130000" in output
+
+
+def test_plan_revision_blocks_when_host_resource_schema_is_drifted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    orchestrator = MigrationOrchestrator(
+        tmp_path,
+        {"postgres": tmp_path / "alembic.postgres.ini"},
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_load_script_directory",
+        lambda _db_type: _FakeScriptDirectory(),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_get_current_revisions",
+        lambda _db_type: ["20260604173000"],
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "_check_host_resource_schema_contract",
+        lambda _db_type, _heads: {
+            "status": "schema_drift",
+            "error": "Host-resource ledger schema is partially applied.",
+            "host_resource_schema": {
+                "missing_tables": ["host_resource_workspace_allocations"],
+            },
+        },
+    )
+
+    result = orchestrator.plan_revision("postgres", "20260715130000")
+
+    assert result["status"] == "schema_drift"
+    assert "partially applied" in result["error"]
