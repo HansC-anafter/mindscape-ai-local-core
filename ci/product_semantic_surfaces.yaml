@@ -543,6 +543,7 @@ surfaces:
       - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
       - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
       - Global voice Meeting bootstrap readiness requires the live workspace-admission host schema owned by revision 20260727120000; health or container liveness cannot substitute for schema and original-path readback, and missing schema restores through the existing incident-gated migration path without a second session writer, fallback route, pack install, resource downgrade, or UX poller.
+      - Bounded voice submits only browser-decodable audio frames through its existing recorder facade, while realtime voice initializes the repository-installed VAD module only after explicit start through its existing lazy VAD facade; header-only media, an undeclared global runtime, cloud or CDN fallback, and idle microphone, VAD, model, timer, or network work are forbidden.
     path_globs:
       - backend/app/models/meeting_voice.py
       - backend/app/models/meeting_voice_session.py
