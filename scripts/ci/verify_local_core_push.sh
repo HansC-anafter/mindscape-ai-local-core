@@ -24,6 +24,8 @@ Options:
   --contract-root PATH Canonical mindscape-ai-cloud checkout
   --force              Ignore a matching verification receipt
   --explain            Print gate fingerprints and receipt paths without running gates
+  LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK=1
+                       Skip only resolved worktree-count verification
   -h, --help           Show this help
 EOF
 }
@@ -141,6 +143,10 @@ require_clean_git_scope() {
   if [ -n "$stash_output" ]; then
     printf 'ERROR: push verification requires every stash to be resolved or classified\n%s\n' "$stash_output" >&2
     exit 1
+  fi
+  if [ "${LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK:-0}" = "1" ]; then
+    printf 'WARNING: skipping resolved worktree-count verification due LOCAL_CORE_PUSH_SKIP_WORKTREE_CHECK=1\n' >&2
+    return
   fi
   worktree_count="$(git worktree list --porcelain | grep -c '^worktree ')"
   if [ "$worktree_count" -ne 1 ]; then
