@@ -106,11 +106,8 @@ describe('WorkspaceGlobalToolRailProvider', () => {
       screen.getByTestId('workspace-graph-tool'),
     );
     await waitFor(() => {
-      expect(screen.getByTestId('workspace-voice-tool')).toBeDisabled();
-      expect(screen.getByTestId('workspace-voice-tool')).toHaveAttribute(
-        'title',
-        'Voice: Focus a text input terminal before recording.',
-      );
+      expect(screen.getByTestId('workspace-voice-tool')).toBeEnabled();
+      expect(screen.getByTestId('workspace-voice-tool')).toHaveAttribute('title', 'Voice');
       expect(screen.getByTestId('workspace-global-tool-group-runtime')).toContainElement(
         screen.getByTestId('workspace-voice-tool'),
       );

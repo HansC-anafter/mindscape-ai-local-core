@@ -246,6 +246,8 @@ def verify_critical_tables_state():
     from backend.scripts.preflight_db_core import (
         DatabaseProbeResult,
         DatabaseProbeState,
+        find_missing_public_relations,
+        required_relations_for_backend_role,
         run_bounded_database_probe,
     )
 
@@ -260,7 +262,8 @@ def verify_critical_tables_state():
             failure_code="psycopg2_unavailable",
         )
 
-    critical_tables = ["profiles", "workspaces", "system_settings", "user_configs"]
+    backend_role = str(os.getenv("MINDSCAPE_BACKEND_ROLE", "")).strip().lower()
+    required_relations = required_relations_for_backend_role(backend_role)
 
     pg_host = os.getenv("POSTGRES_CORE_HOST", os.getenv("POSTGRES_HOST", "postgres"))
     pg_port = int(os.getenv("POSTGRES_CORE_PORT", os.getenv("POSTGRES_PORT", "5432")))
@@ -280,21 +283,11 @@ def verify_critical_tables_state():
             dbname=core_db,
             connect_timeout=5,
         )
-        cur = conn.cursor()
-        missing = []
-        for table in critical_tables:
-            cur.execute(
-                "SELECT EXISTS ("
-                "  SELECT 1 FROM information_schema.tables"
-                "  WHERE table_name = %s AND table_schema = 'public'"
-                ")",
-                (table,),
-            )
-            if not cur.fetchone()[0]:
-                missing.append(table)
-        cur.close()
-        conn.close()
-        return tuple(missing)
+        try:
+            with conn.cursor() as cur:
+                return find_missing_public_relations(cur, required_relations)
+        finally:
+            conn.close()
 
     probe, missing = run_bounded_database_probe(_probe_tables)
     if probe.state is not DatabaseProbeState.READY:
@@ -312,7 +305,11 @@ def verify_critical_tables_state():
             elapsed_seconds=probe.elapsed_seconds,
             missing_tables=tuple(missing),
         )
-    print(f"[preflight] All {len(critical_tables)} critical tables verified")
+    role_label = backend_role or "unspecified"
+    print(
+        f"[preflight] All {len(required_relations)} critical relations verified "
+        f"for backend role '{role_label}'"
+    )
     return probe
 
 
