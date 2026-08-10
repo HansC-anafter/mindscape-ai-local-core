@@ -23,6 +23,20 @@ logging.basicConfig(level=logging.INFO)
 
 # Lazy init
 DEFAULT_WHISPER_MODEL = os.getenv("WHISPER_MODEL", "openai/whisper-small")
+
+
+def parse_cpu_threads(raw_value: str) -> int:
+    """Parse the bounded CTranslate2 intra-op thread budget."""
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("WHISPER_CPU_THREADS must be an integer from 1 to 14") from exc
+    if not 1 <= value <= 14:
+        raise RuntimeError("WHISPER_CPU_THREADS must be an integer from 1 to 14")
+    return value
+
+
+WHISPER_CPU_THREADS = parse_cpu_threads(os.getenv("WHISPER_CPU_THREADS", "8"))
 _model = None
 _model_size = None
 _model_lock = threading.Lock()
@@ -41,11 +55,21 @@ def get_model(model_name: str = "medium", device: str = "cpu"):
     with _model_lock:
         if _model is not None and _model_size == size:
             return _model
-        logger.info(f"Loading faster-whisper model: {size} (device={device})")
+        logger.info(
+            "Loading faster-whisper model: %s (device=%s, cpu_threads=%s)",
+            size,
+            device,
+            WHISPER_CPU_THREADS,
+        )
         from faster_whisper import WhisperModel
 
         compute = "int8" if device == "cpu" else "float16"
-        _model = WhisperModel(size, device=device, compute_type=compute)
+        _model = WhisperModel(
+            size,
+            device=device,
+            compute_type=compute,
+            cpu_threads=WHISPER_CPU_THREADS,
+        )
         _model_size = size
         logger.info(f"Model loaded: {size}")
         return _model
@@ -78,6 +102,7 @@ async def health():
         "status": "healthy",
         "model_loaded": _model is not None,
         "busy": _transcription_lock.locked(),
+        "cpu_threads": WHISPER_CPU_THREADS,
     }
 
 def _transcribe_sync(req: TranscribeRequest) -> TranscribeResponse:

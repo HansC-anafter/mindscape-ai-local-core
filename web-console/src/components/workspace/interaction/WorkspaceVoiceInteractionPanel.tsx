@@ -77,7 +77,7 @@ export function WorkspaceVoiceInteractionPanel({
     'transcribing',
     'submitting',
     'realtime_connecting',
-  ].includes(controller.state);
+  ].includes(controller.state) || controller.turnInFlight;
   const statusKey = stateMessageKey(controller.state);
 
   return (
@@ -151,6 +151,7 @@ export function WorkspaceVoiceInteractionPanel({
               : 'border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300'
           }`}
           onClick={() => controller.setMode('bounded')}
+          disabled={busy}
           data-testid="workspace-voice-mode-bounded"
         >
           {t('workspaceVoiceModeBounded' as any)}
@@ -163,7 +164,7 @@ export function WorkspaceVoiceInteractionPanel({
               : 'border-slate-200 text-slate-600 dark:border-slate-800 dark:text-slate-300'
           } disabled:cursor-not-allowed disabled:opacity-50`}
           onClick={() => controller.setMode('realtime')}
-          disabled={!controller.realtimeAvailable}
+          disabled={!controller.realtimeAvailable || busy}
           title={!controller.realtimeAvailable
             ? t('workspaceVoiceRealtimeUnavailable' as any)
             : undefined}
@@ -212,6 +213,7 @@ export function WorkspaceVoiceInteractionPanel({
           type="button"
           className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-100 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-900"
           onClick={controller.cancel}
+          disabled={busy}
           aria-label={t('workspaceVoiceCancel' as any)}
           title={t('workspaceVoiceCancel' as any)}
           data-testid="workspace-voice-cancel"

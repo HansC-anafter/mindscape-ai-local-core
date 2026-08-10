@@ -1007,6 +1007,7 @@ services:
       - HF_HOME=/root/.cache/huggingface
       - HUGGINGFACE_HUB_CACHE=/root/.cache/huggingface/hub
       - WHISPER_MODEL=${WHISPER_MODEL:-openai/whisper-small}
+      - WHISPER_CPU_THREADS=${WHISPER_CPU_THREADS:-8}
       - TZ=${TZ:-UTC}
     volumes:
       - ./services/whisper/server.py:/app/server.py:ro

@@ -16,6 +16,7 @@ const panelState = vi.hoisted(() => ({
     error: null as string | null,
     transcript: null as string | null,
     answerText: null as string | null,
+    turnInFlight: false,
     realtimeAvailable: false,
     setMode: vi.fn(),
     start: vi.fn(),
@@ -53,6 +54,7 @@ describe('WorkspaceVoiceInteractionPanel', () => {
     panelState.controller.state = 'idle';
     panelState.controller.transcript = null;
     panelState.controller.answerText = null;
+    panelState.controller.turnInFlight = false;
   });
 
   it('shows background Meeting bootstrap progress instead of a text-focus downgrade', () => {
@@ -82,5 +84,23 @@ describe('WorkspaceVoiceInteractionPanel', () => {
       'Keep the knee tracking over the second toe.',
     );
     expect(screen.getByTestId('workspace-voice-primary-control')).toBeEnabled();
+  });
+
+  it('disables both modes, primary control, and local cancel while a turn is irreversible', () => {
+    panelState.targets = [{}];
+    panelState.bootstrapStatus = 'ready';
+    panelState.controller.activeTarget = {
+      targetLabel: 'Workspace Meeting Engine',
+      submissionPolicy: 'direct_submit',
+      realtimeTransport: {},
+    };
+    panelState.controller.turnInFlight = true;
+
+    render(<WorkspaceVoiceInteractionPanel apiUrl="http://api.test" />);
+
+    expect(screen.getByTestId('workspace-voice-mode-bounded')).toBeDisabled();
+    expect(screen.getByTestId('workspace-voice-mode-realtime')).toBeDisabled();
+    expect(screen.getByTestId('workspace-voice-primary-control')).toBeDisabled();
+    expect(screen.getByTestId('workspace-voice-cancel')).toBeDisabled();
   });
 });

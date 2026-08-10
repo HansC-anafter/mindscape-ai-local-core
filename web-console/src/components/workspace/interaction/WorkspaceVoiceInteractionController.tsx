@@ -15,7 +15,7 @@ import {
 } from './meetingRealtimeVoiceTransport';
 import {
   encodeWorkspaceVoiceBlob,
-  selectWorkspaceVoiceMimeType,
+  isWorkspaceBoundedVoiceCaptureSupported,
   startWorkspaceBoundedVoiceRecorder,
   type WorkspaceBoundedVoiceRecorderHandle,
   type WorkspaceBoundedVoiceRecording,
@@ -77,8 +77,10 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   const [error, setError] = React.useState<string | null>(null);
   const [transcript, setTranscript] = React.useState<string | null>(null);
   const [answerText, setAnswerText] = React.useState<string | null>(null);
+  const [turnInFlight, setTurnInFlight] = React.useState(false);
   const recorderRef = React.useRef<WorkspaceBoundedVoiceRecorderHandle | null>(null);
   const cancelledRef = React.useRef(false);
+  const turnInFlightRef = React.useRef(false);
   const frozenRef = React.useRef<FrozenWorkspaceInteractionTarget | null>(null);
   const realtimeRef = React.useRef<MeetingRealtimeVoiceTransportHandle | null>(null);
 
@@ -97,9 +99,17 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   }, [closeRealtime]);
 
   const cancel = React.useCallback(() => {
+    if (turnInFlightRef.current) {
+      return;
+    }
     releaseResources();
     setState('cancelled');
   }, [releaseResources]);
+
+  const updateTurnInFlight = React.useCallback((next: boolean) => {
+    turnInFlightRef.current = next;
+    setTurnInFlight(next);
+  }, []);
 
   React.useEffect(() => {
     if (!activeTarget?.realtimeTransport && mode === 'realtime') {
@@ -138,6 +148,9 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   }, [activeTarget, releaseResources]);
 
   const startBounded = React.useCallback(async () => {
+    if (turnInFlightRef.current) {
+      return;
+    }
     setError(null);
     setTranscript(null);
     setAnswerText(null);
@@ -151,23 +164,26 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
       setError(caught instanceof Error ? caught.message : 'no_active_target');
       return;
     }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    if (
+      !navigator.mediaDevices?.getUserMedia
+      || !isWorkspaceBoundedVoiceCaptureSupported()
+    ) {
       frozenRef.current = null;
       setState('unavailable');
       setError('microphone_unavailable');
       return;
     }
-    const mimeType = selectWorkspaceVoiceMimeType();
-    if (!mimeType) {
-      frozenRef.current = null;
-      setState('unavailable');
-      setError('media_recorder_mime_unavailable');
-      return;
-    }
     let stream: MediaStream | null = null;
     try {
       setState('requesting_permission');
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseSuppression: true,
+        },
+      });
       try {
         assertFrozenTarget(frozen);
       } catch (caught) {
@@ -192,8 +208,10 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
         if (!recording) {
           frozenRef.current = null;
           setState('empty');
+          updateTurnInFlight(false);
           return;
         }
+        updateTurnInFlight(true);
         try {
           setState(
             frozen.submissionPolicy === 'direct_submit'
@@ -240,20 +258,22 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
           setError(caught instanceof Error ? caught.message : 'voice_turn_failed');
         } finally {
           frozenRef.current = null;
+          updateTurnInFlight(false);
         }
       };
-      recorderRef.current = startWorkspaceBoundedVoiceRecorder({
-        stream,
-        mimeType,
+      const ownedStream = stream;
+      stream = null;
+      recorderRef.current = await startWorkspaceBoundedVoiceRecorder({
+        stream: ownedStream,
         onComplete: completeRecording,
         onError: (caught) => {
           recorderRef.current = null;
           frozenRef.current = null;
+          updateTurnInFlight(false);
           setState('error');
           setError(caught.message);
         },
       });
-      stream = null;
       setState('recording');
     } catch (caught) {
       stream?.getTracks().forEach((track) => track.stop());
@@ -267,11 +287,17 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
     assertFrozenTarget,
     freezeActiveTarget,
     submitFrozenVoiceTurn,
+    updateTurnInFlight,
   ]);
 
   const stopBounded = React.useCallback(() => {
-    recorderRef.current?.stop();
-  }, []);
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state !== 'recording' || turnInFlightRef.current) {
+      return;
+    }
+    updateTurnInFlight(true);
+    recorder.stop();
+  }, [updateTurnInFlight]);
 
   const stopRealtime = React.useCallback(async () => {
     await closeRealtime();
@@ -280,6 +306,9 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   }, [closeRealtime]);
 
   const startRealtime = React.useCallback(async () => {
+    if (turnInFlightRef.current) {
+      return;
+    }
     if (!activeTarget?.realtimeTransport) {
       setState('unavailable');
       setError('realtime_unavailable');
@@ -322,6 +351,9 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
   ]);
 
   const setVoiceMode = React.useCallback((next: WorkspaceVoiceMode) => {
+    if (turnInFlightRef.current) {
+      return;
+    }
     if (state !== 'idle' && state !== 'cancelled') {
       cancel();
     }
@@ -339,6 +371,7 @@ export function useWorkspaceVoiceInteractionController(apiUrl: string) {
     error,
     transcript,
     answerText,
+    turnInFlight,
     realtimeAvailable: Boolean(activeTarget?.realtimeTransport),
     setMode: setVoiceMode,
     start: mode === 'realtime' ? startRealtime : startBounded,

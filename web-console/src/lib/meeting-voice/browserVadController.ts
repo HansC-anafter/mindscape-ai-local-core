@@ -1,4 +1,9 @@
-import { MicVAD, utils } from '@ricky0123/vad-web';
+import { MicVAD } from '@ricky0123/vad-web';
+
+import {
+  arrayBufferToBase64,
+  encodeBrowserPcm16Wav,
+} from './browserPcmWav';
 
 export type VadSpeechWindow = {
   audioBase64: string;
@@ -31,9 +36,9 @@ export async function createBrowserVadController(
     onSpeechStart: () => input.onSpeechStart?.(),
     onSpeechEnd: async (audio: Float32Array) => {
       try {
-        const wavBuffer = utils.encodeWAV(audio, 1, 16000, 1, 16);
+        const wavBuffer = encodeBrowserPcm16Wav(audio);
         await input.onSpeechEnd({
-          audioBase64: utils.arrayBufferToBase64(wavBuffer),
+          audioBase64: arrayBufferToBase64(wavBuffer),
           mimeType: 'audio/wav',
         });
       } catch (error) {

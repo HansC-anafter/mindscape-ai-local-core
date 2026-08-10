@@ -1,158 +1,230 @@
-import { blobToBase64Audio } from '@/lib/meeting-voice/voiceTurnClient';
+import {
+  arrayBufferToBase64,
+  encodeBrowserPcm16Wav,
+  MEETING_VOICE_SAMPLE_RATE,
+} from '@/lib/meeting-voice/browserPcmWav';
 
-export const WORKSPACE_VOICE_CHUNK_TIMESLICE_MS = 1000;
+const WORKSPACE_PCM_WORKLET_URL = '/voice/workspacePcmCapture.worklet.js';
+const WORKSPACE_PCM_PROCESSOR_NAME = 'workspace-pcm-capture';
 
-const WORKSPACE_VOICE_MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/mp4;codecs=mp4a.40.2',
-  'audio/mp4',
-  'audio/wav',
-] as const;
+type BrowserAudioContextConstructor = new () => AudioContext;
 
-export function selectWorkspaceVoiceMimeType(): string | null {
-  if (
-    typeof MediaRecorder === 'undefined'
-    || typeof MediaRecorder.isTypeSupported !== 'function'
-  ) {
+function audioContextConstructor(): BrowserAudioContextConstructor | null {
+  if (typeof window === 'undefined') {
     return null;
   }
-  return WORKSPACE_VOICE_MIME_CANDIDATES.find(
-    (candidate) => MediaRecorder.isTypeSupported(candidate),
-  ) || null;
+  const browserWindow = window as typeof window & {
+    webkitAudioContext?: BrowserAudioContextConstructor;
+  };
+  return window.AudioContext || browserWindow.webkitAudioContext || null;
+}
+
+export function isWorkspaceBoundedVoiceCaptureSupported(): boolean {
+  return Boolean(
+    audioContextConstructor()
+    && typeof AudioWorkletNode !== 'undefined'
+    && typeof OfflineAudioContext !== 'undefined',
+  );
 }
 
 export async function encodeWorkspaceVoiceBlob(blob: Blob): Promise<string> {
-  return blobToBase64Audio(blob);
+  return arrayBufferToBase64(await blob.arrayBuffer());
 }
 
 export type WorkspaceBoundedVoiceRecording = {
   audioBlob: Blob;
-  mimeType: string;
+  mimeType: 'audio/wav';
 };
 
 export type WorkspaceBoundedVoiceRecorderHandle = {
-  readonly state: RecordingState;
+  readonly state: 'recording' | 'inactive';
   stop: () => void;
   cancel: () => void;
 };
 
 type StartWorkspaceBoundedVoiceRecorderInput = {
   stream: MediaStream;
-  mimeType: string;
   onComplete: (
     recording: WorkspaceBoundedVoiceRecording | null,
   ) => Promise<void> | void;
   onError: (error: Error) => void;
 };
 
-function mediaRecorderEventError(event: Event): Error {
-  const error = (event as Event & { error?: DOMException }).error;
-  if (!error) {
-    return new Error('media_recorder_failed');
-  }
-  const normalized = new Error(error.message || 'media_recorder_failed');
-  normalized.name = error.name || 'MediaRecorderError';
-  return normalized;
+type WorkspacePcmMessage =
+  | { type: 'samples'; samples: Float32Array }
+  | { type: 'flushed' };
+
+function joinSampleChunks(chunks: Float32Array[]): Float32Array {
+  const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+  const samples = new Float32Array(length);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    samples.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return samples;
 }
 
-export async function isWorkspaceVoiceBlobDecodable(blob: Blob): Promise<boolean> {
-  if (blob.size === 0) {
-    return false;
+async function resampleToMeetingVoice(
+  samples: Float32Array,
+  sourceSampleRate: number,
+): Promise<Float32Array> {
+  if (samples.length === 0) {
+    return samples;
   }
-  if (typeof OfflineAudioContext === 'undefined') {
-    throw new Error('workspace_voice_audio_decoder_unavailable');
+  if (sourceSampleRate === MEETING_VOICE_SAMPLE_RATE) {
+    return samples;
   }
-  const decoder = new OfflineAudioContext(1, 1, 16000);
-  try {
-    const audio = await decoder.decodeAudioData(await blob.arrayBuffer());
-    return audio.length > 0
-      && Number.isFinite(audio.duration)
-      && audio.duration > 0;
-  } catch {
-    return false;
-  }
+  const outputLength = Math.max(
+    1,
+    Math.ceil(samples.length * MEETING_VOICE_SAMPLE_RATE / sourceSampleRate),
+  );
+  const offline = new OfflineAudioContext(
+    1,
+    outputLength,
+    MEETING_VOICE_SAMPLE_RATE,
+  );
+  const inputBuffer = offline.createBuffer(1, samples.length, sourceSampleRate);
+  inputBuffer.copyToChannel(samples, 0);
+  const source = offline.createBufferSource();
+  source.buffer = inputBuffer;
+  source.connect(offline.destination);
+  source.start();
+  const rendered = await offline.startRendering();
+  return new Float32Array(rendered.getChannelData(0));
 }
 
-export function startWorkspaceBoundedVoiceRecorder(
+export async function startWorkspaceBoundedVoiceRecorder(
   input: StartWorkspaceBoundedVoiceRecorderInput,
-): WorkspaceBoundedVoiceRecorderHandle {
-  const recorder = new MediaRecorder(input.stream, { mimeType: input.mimeType });
-  const chunks: Blob[] = [];
+): Promise<WorkspaceBoundedVoiceRecorderHandle> {
+  const AudioContextClass = audioContextConstructor();
+  if (
+    !AudioContextClass
+    || typeof AudioWorkletNode === 'undefined'
+    || typeof OfflineAudioContext === 'undefined'
+  ) {
+    input.stream.getTracks().forEach((track) => track.stop());
+    throw new Error('workspace_voice_audio_worklet_unavailable');
+  }
+
+  const context = new AudioContextClass();
+  const chunks: Float32Array[] = [];
+  let captureState: 'recording' | 'inactive' = 'recording';
   let cancelled = false;
   let settled = false;
-  let tracksReleased = false;
+  let resourcesReleased = false;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let worklet: AudioWorkletNode | null = null;
+  let silentSink: GainNode | null = null;
 
-  const releaseTracks = () => {
-    if (tracksReleased) {
+  const releaseResources = async () => {
+    if (resourcesReleased) {
       return;
     }
-    tracksReleased = true;
+    resourcesReleased = true;
+    captureState = 'inactive';
+    source?.disconnect();
+    worklet?.disconnect();
+    silentSink?.disconnect();
     input.stream.getTracks().forEach((track) => track.stop());
+    if (context.state !== 'closed') {
+      await context.close().catch(() => undefined);
+    }
   };
 
-  const fail = (error: Error) => {
+  const fail = async (caught: unknown) => {
     if (cancelled || settled) {
       return;
     }
     settled = true;
-    releaseTracks();
-    input.onError(error);
+    await releaseResources();
+    input.onError(
+      caught instanceof Error
+        ? caught
+        : new Error('bounded_voice_recording_failed'),
+    );
   };
 
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) {
-      chunks.push(event.data);
-    }
-  };
-  recorder.onerror = (event) => fail(mediaRecorderEventError(event));
-  recorder.onstop = async () => {
-    releaseTracks();
+  const finalize = async () => {
     if (cancelled || settled) {
       return;
     }
+    settled = true;
+    const sourceSampleRate = context.sampleRate;
+    await releaseResources();
     try {
-      const mimeType = recorder.mimeType || input.mimeType;
-      const audioBlob = new Blob(chunks, { type: mimeType });
-      const recording = await isWorkspaceVoiceBlobDecodable(audioBlob)
-        ? { audioBlob, mimeType }
-        : null;
-      if (cancelled || settled) {
+      const samples = await resampleToMeetingVoice(
+        joinSampleChunks(chunks),
+        sourceSampleRate,
+      );
+      if (cancelled) {
         return;
       }
-      await input.onComplete(recording);
-      settled = true;
-    } catch (error) {
-      fail(
-        error instanceof Error
-          ? error
+      if (samples.length === 0) {
+        await input.onComplete(null);
+        return;
+      }
+      const wav = encodeBrowserPcm16Wav(samples);
+      await input.onComplete({
+        audioBlob: new Blob([wav], { type: 'audio/wav' }),
+        mimeType: 'audio/wav',
+      });
+    } catch (caught) {
+      input.onError(
+        caught instanceof Error
+          ? caught
           : new Error('bounded_voice_recording_failed'),
       );
     }
   };
 
   try {
-    recorder.start(WORKSPACE_VOICE_CHUNK_TIMESLICE_MS);
-  } catch (error) {
-    releaseTracks();
-    throw error;
+    await context.audioWorklet.addModule(WORKSPACE_PCM_WORKLET_URL);
+    source = context.createMediaStreamSource(input.stream);
+    worklet = new AudioWorkletNode(context, WORKSPACE_PCM_PROCESSOR_NAME);
+    silentSink = context.createGain();
+    silentSink.gain.value = 0;
+    worklet.port.onmessage = (event: MessageEvent<WorkspacePcmMessage>) => {
+      if (cancelled || settled) {
+        return;
+      }
+      if (event.data.type === 'samples') {
+        chunks.push(new Float32Array(event.data.samples));
+      } else if (event.data.type === 'flushed') {
+        void finalize();
+      }
+    };
+    worklet.onprocessorerror = () => {
+      void fail(new Error('workspace_voice_audio_worklet_failed'));
+    };
+    source.connect(worklet);
+    worklet.connect(silentSink);
+    silentSink.connect(context.destination);
+    if (context.state === 'suspended') {
+      await context.resume();
+    }
+  } catch (caught) {
+    await releaseResources();
+    throw caught;
   }
 
   return {
     get state() {
-      return recorder.state;
+      return captureState;
     },
     stop: () => {
-      if (recorder.state !== 'inactive') {
-        recorder.stop();
+      if (captureState !== 'recording' || cancelled || settled) {
+        return;
       }
+      captureState = 'inactive';
+      worklet?.port.postMessage({ type: 'flush' });
     },
     cancel: () => {
-      cancelled = true;
-      releaseTracks();
-      if (recorder.state !== 'inactive') {
-        recorder.stop();
+      if (cancelled || settled) {
+        return;
       }
+      cancelled = true;
+      void releaseResources();
     },
   };
 }

@@ -1,181 +1,218 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  WORKSPACE_VOICE_CHUNK_TIMESLICE_MS,
-  selectWorkspaceVoiceMimeType,
+  encodeWorkspaceVoiceBlob,
+  isWorkspaceBoundedVoiceCaptureSupported,
   startWorkspaceBoundedVoiceRecorder,
 } from './workspaceBoundedVoiceTransport';
 
-class FakeOfflineAudioContext {
-  static decodeResult: 'valid' | 'invalid' = 'valid';
+const audioMocks = vi.hoisted(() => ({
+  addModule: vi.fn(async () => undefined),
+  close: vi.fn(async () => undefined),
+  resume: vi.fn(async () => undefined),
+  sourceConnect: vi.fn(),
+  sourceDisconnect: vi.fn(),
+  workletConnect: vi.fn(),
+  workletDisconnect: vi.fn(),
+  sinkConnect: vi.fn(),
+  sinkDisconnect: vi.fn(),
+}));
 
-  async decodeAudioData(_buffer: ArrayBuffer): Promise<AudioBuffer> {
-    if (FakeOfflineAudioContext.decodeResult === 'invalid') {
-      throw new DOMException('invalid media');
-    }
+class FakeAudioContext {
+  audioWorklet = { addModule: audioMocks.addModule };
+  destination = {} as AudioDestinationNode;
+  sampleRate = 48000;
+  state: AudioContextState = 'running';
+  close = audioMocks.close;
+  resume = audioMocks.resume;
+
+  createMediaStreamSource() {
     return {
-      duration: 1,
-      length: 16000,
-    } as AudioBuffer;
+      connect: audioMocks.sourceConnect,
+      disconnect: audioMocks.sourceDisconnect,
+    } as unknown as MediaStreamAudioSourceNode;
+  }
+
+  createGain() {
+    return {
+      gain: { value: 1 },
+      connect: audioMocks.sinkConnect,
+      disconnect: audioMocks.sinkDisconnect,
+    } as unknown as GainNode;
   }
 }
 
-class FakeMediaRecorder {
-  static instances: FakeMediaRecorder[] = [];
+class FakeAudioWorkletNode {
+  static instances: FakeAudioWorkletNode[] = [];
+  port = {
+    onmessage: null as ((event: MessageEvent) => void) | null,
+    postMessage: vi.fn(),
+  };
+  onprocessorerror: (() => void) | null = null;
+  connect = audioMocks.workletConnect;
+  disconnect = audioMocks.workletDisconnect;
 
-  static isTypeSupported(value: string) {
-    return value === 'audio/webm;codecs=opus';
+  constructor(_context: AudioContext, readonly name: string) {
+    FakeAudioWorkletNode.instances.push(this);
   }
 
-  state: RecordingState = 'inactive';
-  mimeType: string;
-  timeslice: number | undefined;
-  ondataavailable: ((event: BlobEvent) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
-  onstop: (() => void) | null = null;
+  emit(data: unknown) {
+    this.port.onmessage?.({ data } as MessageEvent);
+  }
+}
 
-  constructor(_stream: MediaStream, options?: MediaRecorderOptions) {
-    this.mimeType = options?.mimeType || 'audio/webm';
-    FakeMediaRecorder.instances.push(this);
+class FakeOfflineAudioContext {
+  static constructorArgs: unknown[] = [];
+  destination = {} as AudioDestinationNode;
+  private samples = new Float32Array();
+
+  constructor(...args: unknown[]) {
+    FakeOfflineAudioContext.constructorArgs = args;
   }
 
-  start(timeslice?: number) {
-    this.timeslice = timeslice;
-    this.state = 'recording';
+  createBuffer() {
+    return {
+      copyToChannel: (samples: Float32Array) => {
+        this.samples = new Float32Array(samples);
+      },
+    } as unknown as AudioBuffer;
   }
 
-  stop() {
-    this.state = 'inactive';
-    this.onstop?.();
+  createBufferSource() {
+    return {
+      buffer: null,
+      connect: vi.fn(),
+      start: vi.fn(),
+    } as unknown as AudioBufferSourceNode;
   }
 
-  emit(data: Blob) {
-    this.ondataavailable?.({ data } as BlobEvent);
-  }
-
-  fail(error: DOMException) {
-    this.onerror?.(Object.assign(new Event('error'), { error }));
+  async startRendering() {
+    const rendered = this.samples.length > 0
+      ? new Float32Array([0.25, -0.25])
+      : new Float32Array();
+    return {
+      getChannelData: () => rendered,
+    } as unknown as AudioBuffer;
   }
 }
 
 describe('workspaceBoundedVoiceTransport', () => {
+  beforeEach(() => {
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    vi.stubGlobal('AudioWorkletNode', FakeAudioWorkletNode);
+    vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
+  });
+
   afterEach(() => {
-    FakeMediaRecorder.instances = [];
-    FakeOfflineAudioContext.decodeResult = 'valid';
+    FakeAudioWorkletNode.instances = [];
+    FakeOfflineAudioContext.constructorArgs = [];
+    vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it('selects the first supported browser MIME type, including MP4 fallback', () => {
-    class FakeMediaRecorder {
-      static isTypeSupported(value: string) {
-        return value === 'audio/mp4';
-      }
-    }
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
-    expect(selectWorkspaceVoiceMimeType()).toBe('audio/mp4');
+  it('fails closed when the browser PCM capture seam is unavailable', () => {
+    vi.stubGlobal('AudioWorkletNode', undefined);
+    expect(isWorkspaceBoundedVoiceCaptureSupported()).toBe(false);
   });
 
-  it('returns null without importing or starting a recorder', () => {
-    vi.stubGlobal('MediaRecorder', undefined);
-    expect(selectWorkspaceVoiceMimeType()).toBeNull();
+  it('uses the shared browser base64 contract for bounded WAV blobs', async () => {
+    await expect(encodeWorkspaceVoiceBlob(new Blob([new Uint8Array([0, 1, 2])]))).resolves
+      .toBe('AAEC');
   });
 
-  it('records timesliced chunks, admits browser-decodable audio, and releases tracks once', async () => {
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
-    vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
+  it('keeps the worklet leaf bounded to PCM chunking and explicit flush', () => {
+    const source = readFileSync(
+      resolve(process.cwd(), 'public/voice/workspacePcmCapture.worklet.js'),
+      'utf8',
+    );
+    expect(source).toContain('this.chunkSize = 4096');
+    expect(source).toContain("event.data?.type !== 'flush'");
+    expect(source).toContain("this.port.postMessage({ type: 'flushed' })");
+    expect(source).not.toMatch(/fetch\(|WebSocket|setInterval|setTimeout|MediaRecorder/);
+  });
+
+  it('captures PCM, flushes once, resamples to 16 kHz WAV, and releases once', async () => {
     const trackStop = vi.fn();
-    const stream = {
-      getTracks: () => [{ stop: trackStop }],
-    } as unknown as MediaStream;
-    let complete: ((value: unknown) => void) | undefined;
-    const completed = new Promise((resolve) => {
-      complete = resolve;
-    });
-    const onComplete = vi.fn((recording) => complete?.(recording));
+    const onComplete = vi.fn();
     const onError = vi.fn();
-
-    const handle = startWorkspaceBoundedVoiceRecorder({
-      stream,
-      mimeType: 'audio/webm;codecs=opus',
+    const handle = await startWorkspaceBoundedVoiceRecorder({
+      stream: {
+        getTracks: () => [{ stop: trackStop }],
+      } as unknown as MediaStream,
       onComplete,
       onError,
     });
-    const recorder = FakeMediaRecorder.instances[0];
-    recorder.emit(new Blob(['decodable-audio'], { type: recorder.mimeType }));
-    handle.stop();
-    const recording = await completed as { audioBlob: Blob; mimeType: string };
+    const node = FakeAudioWorkletNode.instances[0];
 
-    expect(recorder.timeslice).toBe(WORKSPACE_VOICE_CHUNK_TIMESLICE_MS);
-    expect(recording.audioBlob.size).toBeGreaterThan(0);
-    expect(recording.mimeType).toBe('audio/webm;codecs=opus');
+    expect(audioMocks.addModule).toHaveBeenCalledWith(
+      '/voice/workspacePcmCapture.worklet.js',
+    );
+    expect(node.name).toBe('workspace-pcm-capture');
+    handle.stop();
+    expect(node.port.postMessage).toHaveBeenCalledWith({ type: 'flush' });
+    node.emit({ type: 'samples', samples: new Float32Array([0.1, -0.1]) });
+    node.emit({ type: 'flushed' });
+
+    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    const recording = onComplete.mock.calls[0][0] as { audioBlob: Blob; mimeType: string };
+    expect(recording.mimeType).toBe('audio/wav');
+    expect(new Uint8Array(await recording.audioBlob.arrayBuffer()).slice(0, 4))
+      .toEqual(new Uint8Array([82, 73, 70, 70]));
+    expect(FakeOfflineAudioContext.constructorArgs).toEqual([1, 1, 16000]);
     expect(trackStop).toHaveBeenCalledTimes(1);
+    expect(audioMocks.close).toHaveBeenCalledTimes(1);
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it('returns empty and never forwards an undecodable container as audio', async () => {
-    FakeOfflineAudioContext.decodeResult = 'invalid';
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
-    vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
+  it('returns empty for a flushed capture with zero PCM frames', async () => {
     const onComplete = vi.fn();
-    const handle = startWorkspaceBoundedVoiceRecorder({
+    const handle = await startWorkspaceBoundedVoiceRecorder({
       stream: {
         getTracks: () => [{ stop: vi.fn() }],
       } as unknown as MediaStream,
-      mimeType: 'audio/webm;codecs=opus',
       onComplete,
       onError: vi.fn(),
     });
-    const recorder = FakeMediaRecorder.instances[0];
-    recorder.emit(new Blob(['container-only'], { type: recorder.mimeType }));
     handle.stop();
+    FakeAudioWorkletNode.instances[0].emit({ type: 'flushed' });
 
     await vi.waitFor(() => expect(onComplete).toHaveBeenCalledWith(null));
   });
 
-  it('cancels without completing and releases the microphone exactly once', async () => {
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
-    vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
+  it('cancels without completion and releases the microphone exactly once', async () => {
     const trackStop = vi.fn();
     const onComplete = vi.fn();
-    const handle = startWorkspaceBoundedVoiceRecorder({
+    const handle = await startWorkspaceBoundedVoiceRecorder({
       stream: {
         getTracks: () => [{ stop: trackStop }],
       } as unknown as MediaStream,
-      mimeType: 'audio/webm;codecs=opus',
       onComplete,
       onError: vi.fn(),
     });
 
     handle.cancel();
-    await Promise.resolve();
-
+    handle.cancel();
+    await vi.waitFor(() => expect(audioMocks.close).toHaveBeenCalledTimes(1));
     expect(trackStop).toHaveBeenCalledTimes(1);
     expect(onComplete).not.toHaveBeenCalled();
   });
 
-  it('fails closed on recorder errors and releases the microphone', () => {
-    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
-    vi.stubGlobal('OfflineAudioContext', FakeOfflineAudioContext);
-    const trackStop = vi.fn();
-    const onComplete = vi.fn();
+  it('fails closed on worklet processor errors', async () => {
     const onError = vi.fn();
-    startWorkspaceBoundedVoiceRecorder({
+    await startWorkspaceBoundedVoiceRecorder({
       stream: {
-        getTracks: () => [{ stop: trackStop }],
+        getTracks: () => [{ stop: vi.fn() }],
       } as unknown as MediaStream,
-      mimeType: 'audio/webm;codecs=opus',
-      onComplete,
+      onComplete: vi.fn(),
       onError,
     });
 
-    const error = new DOMException('recorder failed', 'UnknownError');
-    FakeMediaRecorder.instances[0].fail(error);
-
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'recorder failed',
-      name: 'UnknownError',
-    }));
-    expect(trackStop).toHaveBeenCalledTimes(1);
-    expect(onComplete).not.toHaveBeenCalled();
+    FakeAudioWorkletNode.instances[0].onprocessorerror?.();
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledWith(
+      new Error('workspace_voice_audio_worklet_failed'),
+    ));
   });
 });

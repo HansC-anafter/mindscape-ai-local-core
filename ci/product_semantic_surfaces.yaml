@@ -543,7 +543,8 @@ surfaces:
       - Workspace chat, bounded and realtime Meeting transports, and Host Runtime review behavior converge behind one frontend interaction controller; compatibility routes are inbound adapters only and do not keep separate capture or writer semantics.
       - Closed or idle voice UI performs no microphone, WebSocket, VAD, health, timer, polling, DB, worker, queue, or PgBouncer work; raw audio, windows, and partials are never persisted, and each final utterance is submitted at most once.
       - Global voice Meeting bootstrap readiness requires the live workspace-admission host schema owned by revision 20260727120000; health or container liveness cannot substitute for schema and original-path readback, and missing schema restores through the existing incident-gated migration path without a second session writer, fallback route, pack install, resource downgrade, or UX poller.
-      - Bounded voice submits only browser-decodable audio frames through its existing recorder facade, while realtime voice initializes the repository-installed VAD module only after explicit start through its existing lazy VAD facade; header-only media, an undeclared global runtime, cloud or CDN fallback, and idle microphone, VAD, model, timer, or network work are forbidden.
+      - Bounded voice captures browser PCM through one AudioWorklet facade and shares one 16 kHz mono PCM16 WAV encoder with the explicitly started repository-installed realtime VAD leaf; MediaRecorder containers, an undeclared global runtime, cloud or CDN fallback, and idle microphone, worklet, VAD, model, timer, or network work are forbidden.
+      - One Workspace voice panel permits only one irreversible capture/encode/final-submit turn across bounded and realtime modes; the existing local faster-whisper model, beam, VAD, single model lock, and provider remain fixed while its bounded CPU thread budget is explicit and runtime-latency gated rather than hidden by longer timeouts, extra workers, polling, or resource downgrades.
     path_globs:
       - backend/app/models/meeting_voice.py
       - backend/app/models/meeting_voice_session.py
@@ -559,6 +560,7 @@ surfaces:
       - backend/app/services/host_runtime_sessions/**
       - backend/tests/*voice*
       - web-console/src/lib/meeting-voice/**
+      - web-console/public/voice/workspacePcmCapture.worklet.js
       - web-console/src/lib/host-runtime-sessions.ts
       - web-console/src/lib/workspace-interaction/**
       - web-console/src/components/workspace/interaction/**
@@ -585,6 +587,9 @@ surfaces:
       - "web-console/src/app/workspaces/[workspaceId]/capability-ui-hosts/CapabilityHostRuntimeFrame.tsx"
       - web-console/src/**/*.spec.ts
       - web-console/src/**/*.spec.tsx
+      - services/whisper/server.py
+      - services/whisper/server_spec.py
+      - docker-compose.yml
 
   - id: psc.local-core.workspace-aol-interruptible-voice-dialogue-and-object-grounding.v1
     tier: P0
