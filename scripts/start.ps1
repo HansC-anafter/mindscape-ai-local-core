@@ -71,6 +71,51 @@ foreach ($profile in $requestedProfiles) {
 }
 $composeUpArgs += @("up", "-d")
 
+$ocrProfileEnabled = $requestedProfiles -contains "ocr"
+$ocrStartupTimeoutSeconds = 120
+if ($env:LOCAL_CORE_OCR_STARTUP_TIMEOUT_SECONDS) {
+    [int]$ocrTimeoutFromEnv = 0
+    if ([int]::TryParse($env:LOCAL_CORE_OCR_STARTUP_TIMEOUT_SECONDS, [ref]$ocrTimeoutFromEnv) -and $ocrTimeoutFromEnv -ge 30) {
+        $ocrStartupTimeoutSeconds = $ocrTimeoutFromEnv
+    }
+}
+$ocrImageService = "ocr-service"
+
+function Wait-ForComposeServiceReadiness {
+    param(
+        [string]$Service,
+        [int]$TimeoutSeconds
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $pollSeconds = 3
+
+    while ((Get-Date) -lt $deadline) {
+        $records = Get-DockerComposeStatusRecords
+        $record = $records | Where-Object { [string]$_.Service -eq $Service } | Select-Object -First 1
+        if ($null -eq $record) {
+            Start-Sleep -Seconds $pollSeconds
+            continue
+        }
+
+        $state = [string]$record.State
+        $health = [string]$record.Health
+        $exitCode = if ($null -eq $record.ExitCode) { 0 } else { [int]$record.ExitCode }
+
+        if ($state -eq "running" -and $health -eq "healthy") {
+            return $true
+        }
+
+        if ($state -eq "exited" -and $exitCode -ne 0) {
+            return $false
+        }
+
+        Start-Sleep -Seconds $pollSeconds
+    }
+
+    return $false
+}
+
 # Helper function to execute docker compose commands with proper error handling
 function Invoke-DockerCompose {
     param(
@@ -571,6 +616,17 @@ if ($FullStartup) {
 } elseif ($requestedProfiles.Count -gt 0) {
     Write-Host "Running compose with COMPOSE_PROFILES: $($requestedProfiles -join ", ")" -ForegroundColor Cyan
 }
+
+if ($ocrProfileEnabled) {
+    Write-Host "Rebuilding OCR engine image ($ocrImageService)..." -ForegroundColor Cyan
+    $ocrBuildExitCode = Invoke-DockerCompose -Arguments @("--profile", "ocr", "build", $ocrImageService)
+    if ($ocrBuildExitCode -ne 0) {
+        Write-Host "ERROR: Failed to rebuild $ocrImageService image." -ForegroundColor Red
+        Write-Host "  Tip: run .\scripts\compose.ps1 build --profile ocr ocr-service" -ForegroundColor Yellow
+        exit 1
+    }
+}
+
 $exitCode = Invoke-DockerCompose -Arguments $composeUpArgs
 
 if ($exitCode -ne 0) {
@@ -670,6 +726,31 @@ if ($exitCode -ne 0) {
 Start-Sleep -Seconds 3
 # Suppress warnings (like missing env vars) and capture only stdout
 $serviceStatusRecords = Get-DockerComposeStatusRecords
+
+if ($ocrProfileEnabled) {
+    $ocrIsReady = Wait-ForComposeServiceReadiness -Service $ocrImageService -TimeoutSeconds $ocrStartupTimeoutSeconds
+    if (-not $ocrIsReady) {
+        Write-Host ""
+        Write-Host "ERROR: OCR readiness did not become healthy within ${ocrStartupTimeoutSeconds}s." -ForegroundColor Red
+        Write-Host "       OCR must become healthy when profile 'ocr' is enabled." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Showing logs for $ocrImageService..." -ForegroundColor Cyan
+        Write-Host ""
+        docker compose logs --tail=200 $ocrImageService
+        Write-Host ""
+        Write-Host "For detailed logs, run:" -ForegroundColor Yellow
+        Write-Host "  .\scripts\compose.ps1 logs $ocrImageService" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "To check service status:" -ForegroundColor Yellow
+        Write-Host "  .\scripts\compose.ps1 ps" -ForegroundColor Cyan
+        Write-Host ""
+        exit 1
+    }
+
+    # Re-read status after readiness wait to refresh OCR health state.
+    $serviceStatusRecords = Get-DockerComposeStatusRecords
+}
+
 $unhealthyServices = @(
     $serviceStatusRecords |
         Where-Object { [string]$_.Health -eq "unhealthy" } |
